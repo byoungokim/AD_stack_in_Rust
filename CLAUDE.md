@@ -14,10 +14,10 @@ Autonomous driving software stack for the **AgileX Limo Pro** robot equipped wit
 ## Tech Stack
 
 - **Middleware**: ZeroMQ (pub/sub + req/rep) + Protobuf (serialization)
-- **Languages**: Python (high-level logic, perception pipelines) + C++ (performance-critical modules)
-- **Build**: CMake (C++), pip/setuptools (Python), Makefile (top-level orchestration)
+- **Languages**: Rust (SensPerc process), Python (Planning process), C++ (Control process)
+- **Build**: Cargo (Rust), CMake (C++), pip/setuptools (Python), Makefile (top-level orchestration)
 - **ML/DL**: PyTorch, TensorRT (for Orin Nano deployment)
-- **Logging**: spdlog (C++), Python `logging` module
+- **Logging**: tracing (Rust), spdlog (C++), Python `logging` module
 - **Config**: YAML config files loaded at startup
 - **Recording**: Custom record/replay system using Protobuf-serialized messages
 
@@ -35,21 +35,21 @@ Autonomous driving software stack for the **AgileX Limo Pro** robot equipped wit
                            ◄══════════ CH0: Heartbeat Bus (10 Hz, all 3) ══════════►
 ```
 
-### Process 1: Sensing & Perception (Python + C++)
+### Process 1: Sensing & Perception (Rust)
 
-All sensors and perception in one process. Intra-process communication via lock-free ring buffers and atomic latest-value slots.
+Full native Rust process for high-bandwidth sensor handling. Intra-process communication via crossbeam lock-free ring buffers and atomic latest-value slots. Built as a Cargo project at `sensperc/`.
 
-| Thread | Language | Rate | Role |
-|--------|----------|------|------|
-| CameraDriver | C++ | 30 Hz | V4L2/GStreamer capture → ring buffer |
-| LidarDriver | C++ | 10 Hz | Serial/UDP LiDAR → ring buffer |
-| ImuDriver | C++ | 100 Hz | IMU serial read → ring buffer |
-| ObjectDetection | Python/C++ | 15 Hz | TensorRT YOLO on GPU |
-| LaneDetection | Python/C++ | 15 Hz | TensorRT lane model on GPU |
-| SlamFrontend | C++ | 10 Hz | Scan matching, pose estimation |
-| SlamBackend | C++ | 1 Hz | Graph optimization |
-| SensorFusion | C++ | 20 Hz | EKF fusing IMU + wheel odom + SLAM pose |
-| PerceptionAggregator | Python | 10 Hz | Combines all results → publishes `WorldState` on CH1 |
+| Thread | Rate | Role |
+|--------|------|------|
+| CameraDriver | 30 Hz | V4L2 capture → ring buffer (dummy fallback on non-Linux) |
+| LidarDriver | 10 Hz | Serial LiDAR → ring buffer (dummy fallback) |
+| ImuDriver | 100 Hz | Serial IMU → ring buffer (dummy fallback) |
+| ObjectDetection | 15 Hz | TensorRT YOLO on GPU |
+| LaneDetection | 15 Hz | TensorRT lane model on GPU |
+| SlamFrontend | 10 Hz | Scan matching, pose estimation |
+| SlamBackend | 1 Hz | Graph optimization |
+| SensorFusion | 20 Hz | EKF fusing IMU + wheel odom + SLAM pose |
+| Aggregator | 10 Hz | Combines all results → publishes `WorldState` on CH1 |
 
 ### Process 2: Planning (Python + C++)
 
