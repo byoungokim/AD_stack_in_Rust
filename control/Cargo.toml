@@ -1,0 +1,51 @@
+[package]
+name = "limo-control"
+version = "0.1.0"
+edition = "2021"
+description = "Limo Drive - Control process (Process 3)"
+
+[[bin]]
+name = "limo_control"
+path = "src/main.rs"
+
+[dependencies]
+# Protobuf
+prost = "0.13"
+prost-types = "0.13"
+
+# ZeroMQ
+zeromq = "0.4"
+
+# Serial port (chassis communication)
+serialport = "4.6"
+
+# Concurrency
+crossbeam = "0.8"
+crossbeam-channel = "0.5"
+
+# Async runtime (for ZMQ)
+tokio = { version = "1", features = ["full"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Config
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+
+# Math
+nalgebra = "0.33"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Bytes manipulation
+bytes = "1"
+
+# Signal handling
+ctrlc = "3.4"
+
+[build-dependencies]
+prost-build = "0.13"

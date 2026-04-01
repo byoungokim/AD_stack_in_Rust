@@ -63,9 +63,9 @@ All decision-making: behavior, global/local planning, E2E inference, and pipelin
 | E2EInference | Python/C++ | 15 Hz | End-to-end neural network (GPU) |
 | PipelineArbitrator | Python | 10 Hz | Selects traditional vs E2E → publishes `ControlCommand` on CH2 |
 
-### Process 3: Control (C++ only)
+### Process 3: Control (Rust)
 
-Safety-critical, purely C++ for determinism. Owns chassis hardware communication.
+Safety-critical, full native Rust for determinism. Owns chassis hardware communication. Built as a Cargo project at `control/`.
 
 | Thread | Language | Rate | Role |
 |--------|----------|------|------|
