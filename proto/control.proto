@@ -1,0 +1,56 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+import "planning.proto";
+
+enum PipelineSource {
+  SOURCE_TRADITIONAL = 0;
+  SOURCE_E2E = 1;
+  SOURCE_MANUAL = 2;
+}
+
+enum DriveMode {
+  DRIVE_DIFFERENTIAL = 0;
+  DRIVE_ACKERMANN = 1;
+  DRIVE_MECANUM = 2;
+}
+
+// CH2: Planning → Control
+message ControlCommand {
+  Header header = 1;
+  PipelineSource source = 2;
+  oneof command {
+    Twist2D velocity_cmd = 3;        // direct velocity command
+    Trajectory trajectory_cmd = 4;   // trajectory for tracker to follow
+  }
+  float confidence = 5;             // [0.0, 1.0]
+  bool emergency_stop = 6;
+}
+
+enum ControllerStatus {
+  CTRL_ACTIVE = 0;
+  CTRL_ESTOP = 1;
+  CTRL_MANUAL = 2;
+  CTRL_IDLE = 3;
+}
+
+// CH3: Control → SensPerc, Planning
+message VehicleState {
+  Header header = 1;
+  Pose2D odometry_pose = 2;
+  Twist2D odometry_velocity = 3;
+  float steering_angle = 4;         // radians (Ackermann mode)
+  DriveMode drive_mode = 5;
+  float battery_voltage = 6;
+  ControllerStatus ctrl_status = 7;
+}
+
+message ChassisFeedback {
+  Header header = 1;
+  float left_wheel_rpm = 2;
+  float right_wheel_rpm = 3;
+  float steering_angle = 4;
+  float battery_voltage = 5;
+  uint32 error_code = 6;
+}

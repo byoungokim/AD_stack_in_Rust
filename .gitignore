@@ -1,0 +1,37 @@
+# Build
+build/
+proto/gen_py/
+*.o
+*.so
+*.a
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+compile_commands.json
+
+# Models (large binary files)
+models/*.engine
+models/*.onnx
+models/*.pt
+
+# Logs & recordings
+logs/
+recordings/
+*.bag
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env

@@ -1,0 +1,39 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+
+message CameraFrame {
+  Header header = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  string encoding = 4;   // "rgb8", "bgr8", "jpeg"
+  bytes data = 5;
+}
+
+message LaserScan {
+  Header header = 1;
+  float angle_min = 2;       // radians
+  float angle_max = 3;       // radians
+  float angle_increment = 4; // radians
+  float range_min = 5;       // meters
+  float range_max = 6;       // meters
+  repeated float ranges = 7;
+  repeated float intensities = 8;
+}
+
+message ImuReading {
+  Header header = 1;
+  Vector3 linear_acceleration = 2;  // m/s^2
+  Vector3 angular_velocity = 3;     // rad/s
+  Vector3 orientation_euler = 4;    // roll, pitch, yaw in radians
+}
+
+// Bundled raw sensor snapshot for E2E inference (CH4)
+message SensorSnapshot {
+  Header header = 1;
+  bytes camera_image = 2;     // compressed JPEG or raw bytes
+  LaserScan lidar_scan = 3;
+  ImuReading imu = 4;
+  Pose2D current_pose = 5;   // latest fused pose for context
+}

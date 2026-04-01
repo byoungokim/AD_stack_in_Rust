@@ -1,0 +1,24 @@
+# Robot hardware configuration (AgileX Limo Pro)
+
+robot:
+  name: "limo_pro"
+  type: "ackermann"          # ackermann | differential | mecanum
+
+geometry:
+  wheelbase: 0.2             # meters, front-to-rear axle
+  track_width: 0.172         # meters, left-to-right wheel
+  wheel_radius: 0.045        # meters
+  max_steering_angle: 0.48   # radians
+
+limits:
+  max_linear_speed: 1.0      # m/s
+  max_angular_speed: 1.5     # rad/s
+  max_acceleration: 0.5      # m/s^2
+  max_deceleration: 1.0      # m/s^2
+
+# Sensor frame transforms (relative to base_link)
+frames:
+  base_link: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]        # x, y, z, roll, pitch, yaw
+  camera: [0.1, 0.0, 0.15, 0.0, 0.0, 0.0]
+  lidar: [0.0, 0.0, 0.12, 0.0, 0.0, 0.0]
+  imu: [0.0, 0.0, 0.05, 0.0, 0.0, 0.0]

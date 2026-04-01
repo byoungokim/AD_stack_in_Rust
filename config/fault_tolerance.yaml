@@ -1,0 +1,13 @@
+# Fault tolerance configuration
+heartbeat:
+  rate_hz: 10
+  warn_timeout_ms: 200
+  degraded_timeout_ms: 500
+  dead_timeout_ms: 1000
+
+watchdog:
+  command_timeout_ms: 200   # Control stops if no ControlCommand for this long
+  deceleration_rate: 0.5    # m/s^2, controlled deceleration on timeout
+
+emergency_stop:
+  max_decel: 1.0            # m/s^2, emergency deceleration rate

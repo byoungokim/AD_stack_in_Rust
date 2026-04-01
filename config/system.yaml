@@ -1,0 +1,25 @@
+# System-level configuration
+pipeline_mode: TRADITIONAL  # TRADITIONAL | E2E | SHADOW
+
+# ZMQ channel ports
+channels:
+  heartbeat_base_port: 5560  # sensperc=5560, planning=5561, control=5562
+  ch1_world_state: "tcp://localhost:5551"
+  ch2_control_cmd: "tcp://localhost:5552"
+  ch3_vehicle_state: "tcp://localhost:5553"
+  ch4_raw_sensors: "tcp://localhost:5554"
+
+# Process launch configuration
+processes:
+  sensperc:
+    enabled: true
+    auto_restart: true
+    restart_delay_sec: 2.0
+  planning:
+    enabled: true
+    auto_restart: true
+    restart_delay_sec: 2.0
+  control:
+    enabled: true
+    auto_restart: true
+    restart_delay_sec: 1.0  # faster restart for safety-critical process

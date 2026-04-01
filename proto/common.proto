@@ -1,0 +1,40 @@
+syntax = "proto3";
+package limo;
+
+// Reusable header for all timestamped messages
+message Header {
+  uint64 timestamp_ns = 1;  // nanoseconds since boot (CLOCK_MONOTONIC)
+  uint32 sequence = 2;      // monotonically increasing sequence number
+  string frame_id = 3;      // coordinate frame identifier
+}
+
+message Pose2D {
+  double x = 1;       // meters
+  double y = 2;       // meters
+  double theta = 3;   // radians, [-pi, pi]
+}
+
+message Twist2D {
+  double linear_x = 1;   // m/s, forward
+  double linear_y = 2;   // m/s, lateral (0 for Ackermann)
+  double angular_z = 3;  // rad/s, yaw rate
+}
+
+message Vector3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message Point2D {
+  double x = 1;
+  double y = 2;
+}
+
+message BoundingBox2D {
+  double x_center = 1;
+  double y_center = 2;
+  double width = 3;
+  double height = 4;
+  double angle = 5;  // radians, rotation of the box
+}

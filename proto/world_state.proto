@@ -1,0 +1,18 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+import "perception.proto";
+
+// CH1: SensPerc → Planning
+// Single aggregated message containing all perception outputs.
+// One coherent, timestamped snapshot per cycle.
+message WorldState {
+  Header header = 1;
+  Pose2D robot_pose = 2;                   // from SLAM/localization
+  Twist2D robot_velocity = 3;              // from sensor fusion (EKF)
+  DetectionArray detections = 4;           // obstacles and objects
+  LaneMarkings lanes = 5;                  // lane information
+  OccupancyGrid local_map = 6;            // local costmap around robot
+  float localization_confidence = 7;       // [0.0, 1.0]
+}

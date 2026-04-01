@@ -1,0 +1,27 @@
+# Control process configuration
+
+chassis:
+  serial_port: "/dev/ttyTHS1"
+  baudrate: 460800
+  rate_hz: 10
+
+tracker:
+  algorithm: "pure_pursuit"  # pure_pursuit | stanley
+  rate_hz: 10
+  pure_pursuit:
+    lookahead_distance: 0.5  # meters
+    min_lookahead: 0.2
+    max_lookahead: 1.5
+  stanley:
+    k_gain: 0.5
+    k_soft: 1.0
+
+kinematics:
+  mode: "ackermann"          # ackermann | differential
+  rate_hz: 10
+  wheelbase: 0.2             # meters (Limo Pro)
+  track_width: 0.172         # meters
+  max_steering_angle: 0.48   # radians (~27.5 degrees)
+
+state_publisher:
+  rate_hz: 20

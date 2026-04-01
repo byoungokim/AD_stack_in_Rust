@@ -1,0 +1,43 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+
+enum PipelineMode {
+  PIPELINE_TRADITIONAL = 0;
+  PIPELINE_E2E = 1;
+  PIPELINE_SHADOW = 2;
+}
+
+message Waypoint {
+  Point2D position = 1;
+  float heading = 2;       // radians
+  float speed = 3;         // m/s, desired speed at this waypoint
+  float curvature = 4;     // 1/m, path curvature at this waypoint
+}
+
+message Path {
+  Header header = 1;
+  repeated Waypoint waypoints = 2;
+}
+
+message Trajectory {
+  Header header = 1;
+  repeated TrajectoryPoint points = 2;
+}
+
+message TrajectoryPoint {
+  Point2D position = 1;
+  float heading = 2;          // radians
+  float speed = 3;            // m/s
+  float curvature = 4;        // 1/m
+  float time_from_start = 5;  // seconds from trajectory start
+}
+
+enum PlanningStatus {
+  PLANNING_IDLE = 0;
+  PLANNING_ACTIVE = 1;
+  PLANNING_GOAL_REACHED = 2;
+  PLANNING_NO_PATH = 3;
+  PLANNING_RECOVERING = 4;
+}

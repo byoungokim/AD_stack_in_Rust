@@ -1,0 +1,53 @@
+# Sensing & Perception process configuration
+
+camera:
+  device: "/dev/video0"
+  width: 640
+  height: 480
+  fps: 30
+  encoding: "bgr8"
+
+lidar:
+  device: "/dev/ttyUSB0"
+  baudrate: 230400
+  scan_rate_hz: 10
+  range_min: 0.1
+  range_max: 12.0
+
+imu:
+  device: "/dev/ttyUSB1"
+  baudrate: 115200
+  rate_hz: 100
+
+detection:
+  model_path: "models/yolov8n.engine"  # TensorRT engine
+  confidence_threshold: 0.5
+  nms_threshold: 0.45
+  input_size: [640, 640]
+  rate_hz: 15
+
+lane_detection:
+  model_path: "models/lane_det.engine"
+  confidence_threshold: 0.3
+  rate_hz: 15
+
+slam:
+  frontend:
+    rate_hz: 10
+    min_scan_distance: 0.1   # meters, min movement to trigger scan match
+  backend:
+    rate_hz: 1
+    optimization_iterations: 10
+
+sensor_fusion:
+  rate_hz: 20
+  # EKF process noise
+  process_noise_position: 0.01
+  process_noise_heading: 0.005
+  # EKF measurement noise
+  measurement_noise_imu: 0.1
+  measurement_noise_odom: 0.05
+  measurement_noise_slam: 0.02
+
+aggregator:
+  rate_hz: 10

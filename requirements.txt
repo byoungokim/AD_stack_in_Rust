@@ -1,0 +1,16 @@
+# Core
+pyzmq>=25.0
+protobuf>=4.25
+pyyaml>=6.0
+
+# ML/Perception (install on Jetson with TensorRT)
+# torch>=2.0
+# torchvision>=0.15
+# opencv-python>=4.8
+
+# Testing
+pytest>=7.0
+pytest-timeout>=2.0
+
+# Utilities
+numpy>=1.24

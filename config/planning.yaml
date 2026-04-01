@@ -1,0 +1,32 @@
+# Planning process configuration
+
+behavior:
+  rate_hz: 5
+  default_speed: 0.5        # m/s
+
+global_planner:
+  rate_hz: 1
+  algorithm: "astar"         # astar | rrt | dijkstra
+  resolution: 0.05           # meters per grid cell
+
+local_planner:
+  rate_hz: 10
+  algorithm: "dwa"           # dwa | teb
+  lookahead_distance: 1.0    # meters
+  max_speed: 1.0             # m/s
+  max_angular_speed: 1.5     # rad/s
+  goal_tolerance: 0.1        # meters
+
+e2e:
+  enabled: false
+  model_path: "models/e2e_driving.engine"
+  rate_hz: 15
+  confidence_threshold: 0.7  # fallback to traditional if below
+
+arbitrator:
+  rate_hz: 10
+  safety_envelope:
+    max_speed: 1.0           # m/s
+    max_acceleration: 0.5    # m/s^2
+    max_angular_speed: 1.5   # rad/s
+    max_curvature: 2.0       # 1/m

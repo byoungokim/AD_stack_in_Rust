@@ -1,0 +1,42 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+
+enum ProcessStatus {
+  PROCESS_NOMINAL = 0;
+  PROCESS_DEGRADED = 1;
+  PROCESS_ERROR = 2;
+  PROCESS_STARTING = 3;
+  PROCESS_SHUTTING_DOWN = 4;
+}
+
+// CH0: Heartbeat Bus (all processes publish and subscribe)
+message Heartbeat {
+  string process_name = 1;    // "sensperc", "planning", "control"
+  uint64 timestamp_ns = 2;
+  ProcessStatus status = 3;
+  uint32 sequence = 4;
+}
+
+// Supervisor → Process commands (REQ/REP)
+enum SystemCommandType {
+  CMD_START = 0;
+  CMD_STOP = 1;
+  CMD_RESTART = 2;
+  CMD_STATUS = 3;
+  CMD_SET_MODE = 4;     // change pipeline mode
+  CMD_ESTOP = 5;        // emergency stop
+}
+
+message SystemCommand {
+  SystemCommandType type = 1;
+  string target_process = 2;  // "sensperc", "planning", "control", or "all"
+  string payload = 3;         // JSON or mode string for CMD_SET_MODE
+}
+
+message SystemResponse {
+  bool success = 1;
+  string message = 2;
+  ProcessStatus status = 3;
+}

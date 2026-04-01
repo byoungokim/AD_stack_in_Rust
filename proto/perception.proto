@@ -1,0 +1,59 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+
+enum ObjectClass {
+  OBJECT_UNKNOWN = 0;
+  OBJECT_PERSON = 1;
+  OBJECT_VEHICLE = 2;
+  OBJECT_BICYCLE = 3;
+  OBJECT_CONE = 4;
+  OBJECT_SIGN = 5;
+  OBJECT_OBSTACLE = 6;
+}
+
+message Detection {
+  ObjectClass object_class = 1;
+  float confidence = 2;          // [0.0, 1.0]
+  BoundingBox2D bbox_image = 3;  // bounding box in image coordinates
+  Point2D position_world = 4;    // estimated position in world frame
+  float distance = 5;            // meters from robot
+}
+
+message DetectionArray {
+  Header header = 1;
+  repeated Detection detections = 2;
+}
+
+message LanePoint {
+  double x = 1;
+  double y = 2;
+  float confidence = 3;
+}
+
+message LaneLine {
+  enum LaneType {
+    LANE_UNKNOWN = 0;
+    LANE_SOLID = 1;
+    LANE_DASHED = 2;
+    LANE_DOUBLE_SOLID = 3;
+  }
+  LaneType type = 1;
+  repeated LanePoint points = 2;
+  float confidence = 3;
+}
+
+message LaneMarkings {
+  Header header = 1;
+  repeated LaneLine lanes = 2;
+}
+
+message OccupancyGrid {
+  Header header = 1;
+  uint32 width = 2;           // cells
+  uint32 height = 3;          // cells
+  float resolution = 4;       // meters per cell
+  Pose2D origin = 5;          // world position of cell (0,0)
+  bytes data = 6;             // row-major, 0=free, 100=occupied, 255=unknown
+}
