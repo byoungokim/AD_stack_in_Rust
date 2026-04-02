@@ -51,17 +51,17 @@ Full native Rust process for high-bandwidth sensor handling. Intra-process commu
 | SensorFusion | 20 Hz | EKF fusing IMU + wheel odom + SLAM pose |
 | Aggregator | 10 Hz | Combines all results → publishes `WorldState` on CH1 |
 
-### Process 2: Planning (Python + C++)
+### Process 2: Planning (Rust)
 
-All decision-making: behavior, global/local planning, E2E inference, and pipeline arbitration.
+All decision-making in native Rust. Built as a Cargo project at `planning/`.
 
-| Thread | Language | Rate | Role |
-|--------|----------|------|------|
-| BehaviorPlanner | Python | 5 Hz | State machine / behavior tree |
-| GlobalPlanner | C++ | 1 Hz | A*/RRT path planning |
-| LocalPlanner | C++ | 10 Hz | DWA/TEB local trajectory |
-| E2EInference | Python/C++ | 15 Hz | End-to-end neural network (GPU) |
-| PipelineArbitrator | Python | 10 Hz | Selects traditional vs E2E → publishes `ControlCommand` on CH2 |
+| Thread | Rate | Role |
+|--------|------|------|
+| BehaviorPlanner | 5 Hz | State machine (Idle → Following → Approaching → GoalReached) |
+| GlobalPlanner | 1 Hz | Hybrid A* with Ackermann motion primitives on (x,y,θ) |
+| LocalPlanner | 10 Hz | DWA primary + simplified MPC fallback for tight maneuvers |
+| E2EInference | 15 Hz | End-to-end neural network (stub, ONNX/TensorRT via ort) |
+| PipelineArbitrator | 10 Hz | Selects traditional vs E2E, applies safety envelope → CH2 |
 
 ### Process 3: Control (Rust)
 

@@ -1,0 +1,42 @@
+[package]
+name = "limo-planning"
+version = "0.1.0"
+edition = "2021"
+description = "Limo Drive - Planning process (Process 2)"
+
+[[bin]]
+name = "limo_planning"
+path = "src/main.rs"
+
+[dependencies]
+# Shared crates
+limo-proto = { path = "../crates/limo-proto" }
+limo-transport = { path = "../crates/limo-transport" }
+
+# Protobuf
+prost = "0.13"
+
+# ZMQ
+zmq = "0.10"
+
+# Concurrency
+crossbeam = "0.8"
+crossbeam-channel = "0.5"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Config
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+
+# Math
+nalgebra = "0.33"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Signal handling
+ctrlc = "3.4"
