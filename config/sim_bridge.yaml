@@ -1,0 +1,12 @@
+# Isaac Sim bridge configuration
+ch5_port: 5560         # SimSensors publish port
+ch6_port: 5561         # SimVehicleState publish port
+ch7_endpoint_connect: "tcp://localhost:5562"  # Subscribe SimControl
+ch7_endpoint_bind: "tcp://*:5562"             # Bind SimControl (for control process)
+
+dummy:
+  sensor_rate_hz: 30
+  state_rate_hz: 20
+  image_width: 640
+  image_height: 480
+  lidar_num_points: 360

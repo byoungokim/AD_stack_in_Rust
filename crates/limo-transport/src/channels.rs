@@ -1,10 +1,13 @@
 /// Channel definitions and configuration.
 ///
-/// Encodes the 5-channel architecture from the system design.
+/// Encodes the 8-channel architecture:
+/// - CH0-CH4: Core inter-process channels
+/// - CH5-CH7: Isaac Sim bridge channels (sim mode only)
 
 /// Logical channel identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Channel {
+    // --- Core channels ---
     /// CH0: Heartbeat bus (all processes)
     Heartbeat,
     /// CH1: WorldState (SensPerc → Planning)
@@ -15,6 +18,14 @@ pub enum Channel {
     VehicleState,
     /// CH4: SensorSnapshot (SensPerc → Planning, E2E/shadow only)
     SensorSnapshot,
+
+    // --- Isaac Sim bridge channels ---
+    /// CH5: SimSensorData (Isaac Sim → SensPerc)
+    SimSensors,
+    /// CH6: SimVehicleState (Isaac Sim → Control)
+    SimVehicleState,
+    /// CH7: SimControlCommand (Control → Isaac Sim)
+    SimControl,
 }
 
 impl Channel {
@@ -26,6 +37,9 @@ impl Channel {
             Channel::ControlCommand => "tcp://*:5552",
             Channel::VehicleState => "tcp://*:5553",
             Channel::SensorSnapshot => "tcp://*:5554",
+            Channel::SimSensors => "tcp://*:5560",
+            Channel::SimVehicleState => "tcp://*:5561",
+            Channel::SimControl => "tcp://*:5562",
         }
     }
 
@@ -37,6 +51,9 @@ impl Channel {
             Channel::ControlCommand => "tcp://localhost:5552",
             Channel::VehicleState => "tcp://localhost:5553",
             Channel::SensorSnapshot => "tcp://localhost:5554",
+            Channel::SimSensors => "tcp://localhost:5560",
+            Channel::SimVehicleState => "tcp://localhost:5561",
+            Channel::SimControl => "tcp://localhost:5562",
         }
     }
 
@@ -48,7 +65,18 @@ impl Channel {
             Channel::ControlCommand => "control_cmd",
             Channel::VehicleState => "vehicle_state",
             Channel::SensorSnapshot => "sensor_snapshot",
+            Channel::SimSensors => "sim_sensors",
+            Channel::SimVehicleState => "sim_vehicle_state",
+            Channel::SimControl => "sim_control",
         }
+    }
+
+    /// Whether this channel is only used in simulation mode.
+    pub fn is_sim_channel(&self) -> bool {
+        matches!(
+            self,
+            Channel::SimSensors | Channel::SimVehicleState | Channel::SimControl
+        )
     }
 }
 

@@ -55,19 +55,41 @@ fn main() -> Result<()> {
           config.camera.fps, config.lidar.scan_rate_hz,
           config.imu.rate_hz, config.aggregator.rate_hz);
 
+    let sim_mode = std::env::args().any(|a| a == "--sim")
+        || std::env::var("LIMO_SIM").map_or(false, |v| v == "1");
+
     ctrlc_handler();
 
     // Create shared sensor store
     let store = Arc::new(SensorStore::new());
 
-    // Start sensor drivers
-    let mut camera = CameraDriver::new(Arc::clone(&store), config.camera.clone());
-    let mut lidar = LidarDriver::new(Arc::clone(&store), config.lidar.clone());
-    let mut imu = ImuDriver::new(Arc::clone(&store), config.imu.clone());
+    // --- Sensor input: hardware drivers OR sim bridge ---
+    let mut camera = None;
+    let mut lidar = None;
+    let mut imu = None;
 
-    camera.start()?;
-    lidar.start()?;
-    imu.start()?;
+    if sim_mode {
+        info!("SIM MODE: subscribing CH5 (SimSensors) instead of hardware drivers");
+        let sim_store = Arc::clone(&store);
+        thread::Builder::new()
+            .name("SimSensorSub".into())
+            .spawn(move || {
+                if let Err(e) = sim_sensor_loop(&sim_store) {
+                    error!("SimSensor subscriber error: {:#}", e);
+                }
+            })?;
+    } else {
+        info!("REAL MODE: starting hardware sensor drivers");
+        let mut cam = CameraDriver::new(Arc::clone(&store), config.camera.clone());
+        let mut lid = LidarDriver::new(Arc::clone(&store), config.lidar.clone());
+        let mut im = ImuDriver::new(Arc::clone(&store), config.imu.clone());
+        cam.start()?;
+        lid.start()?;
+        im.start()?;
+        camera = Some(cam);
+        lidar = Some(lid);
+        imu = Some(im);
+    }
 
     // Start aggregator loop (publishes WorldState on CH1, subscribes CH3)
     let agg_store = Arc::clone(&store);
@@ -99,9 +121,9 @@ fn main() -> Result<()> {
 
     // Graceful shutdown
     info!("Shutting down SensPerc...");
-    camera.stop();
-    lidar.stop();
-    imu.stop();
+    if let Some(mut c) = camera { c.stop(); }
+    if let Some(mut l) = lidar { l.stop(); }
+    if let Some(mut i) = imu { i.stop(); }
     let _ = agg_handle.join();
     info!("=== SensPerc Process Stopped ===");
 
@@ -238,6 +260,74 @@ fn now_ns() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64
+}
+
+/// Subscribe to CH5 (SimSensors from Isaac Sim bridge) and inject into SensorStore.
+fn sim_sensor_loop(store: &Arc<SensorStore>) -> Result<()> {
+    let zmq_ctx = zmq::Context::new();
+    let mut ch5_sub = Subscriber::connect(
+        &zmq_ctx,
+        Channel::SimSensors.connect_endpoint(),
+        Channel::SimSensors.topic(),
+    )?;
+
+    info!("SimSensor subscriber connected to {}", Channel::SimSensors.connect_endpoint());
+
+    while !SHUTDOWN.load(Ordering::Acquire) {
+        match ch5_sub.recv::<limo_proto::SimSensorData>(Duration::from_millis(50)) {
+            Ok(Some(sim_data)) => {
+                // Inject camera frame
+                if !sim_data.camera_image.is_empty() {
+                    let frame = store::types::CameraFrame {
+                        timestamp_ns: sim_data.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0),
+                        width: sim_data.camera_width,
+                        height: sim_data.camera_height,
+                        encoding: sim_data.camera_encoding.clone(),
+                        data: sim_data.camera_image,
+                        sequence: sim_data.header.as_ref().map(|h| h.sequence).unwrap_or(0),
+                    };
+                    store.push_camera_frame(frame);
+                }
+
+                // Inject LiDAR scan
+                if let Some(scan) = sim_data.lidar_scan {
+                    let lidar_scan = store::types::LidarScan {
+                        timestamp_ns: sim_data.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0),
+                        angle_min: scan.angle_min,
+                        angle_max: scan.angle_max,
+                        angle_increment: scan.angle_increment,
+                        range_min: scan.range_min,
+                        range_max: scan.range_max,
+                        ranges: scan.ranges,
+                        intensities: scan.intensities,
+                        sequence: sim_data.header.as_ref().map(|h| h.sequence).unwrap_or(0),
+                    };
+                    store.push_lidar_scan(lidar_scan);
+                }
+
+                // Inject IMU reading
+                if let Some(imu_data) = sim_data.imu {
+                    let accel = imu_data.linear_acceleration.unwrap_or_default();
+                    let gyro = imu_data.angular_velocity.unwrap_or_default();
+                    let euler = imu_data.orientation_euler.unwrap_or_default();
+                    let reading = store::types::ImuReading {
+                        timestamp_ns: sim_data.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0),
+                        linear_acceleration: nalgebra::Vector3::new(accel.x, accel.y, accel.z),
+                        angular_velocity: nalgebra::Vector3::new(gyro.x, gyro.y, gyro.z),
+                        orientation_euler: nalgebra::Vector3::new(euler.x, euler.y, euler.z),
+                        sequence: sim_data.header.as_ref().map(|h| h.sequence).unwrap_or(0),
+                    };
+                    store.push_imu_reading(reading);
+                }
+            }
+            Ok(None) => {} // timeout
+            Err(e) => {
+                debug!("CH5 recv error: {:#}", e);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn ctrlc_handler() {

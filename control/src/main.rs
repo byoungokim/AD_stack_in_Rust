@@ -60,6 +60,9 @@ fn main() -> Result<()> {
         config.state_publisher.rate_hz,
     );
 
+    let sim_mode = std::env::args().any(|a| a == "--sim")
+        || std::env::var("LIMO_SIM").map_or(false, |v| v == "1");
+
     ctrlc_handler();
 
     // --- ZMQ setup ---
@@ -73,6 +76,24 @@ fn main() -> Result<()> {
     let ch2_endpoint = config.transport.ch2_endpoint.as_str();
     let mut ch2_sub = Subscriber::connect(&zmq_ctx, ch2_endpoint, Channel::ControlCommand.topic())?;
 
+    // Sim bridge channels (CH6 sub, CH7 pub) — only in sim mode
+    let mut ch6_sub: Option<Subscriber> = None;
+    let mut ch7_pub: Option<Publisher> = None;
+
+    if sim_mode {
+        info!("SIM MODE: using CH6 (SimVehicleState) and CH7 (SimControl) instead of chassis");
+        ch6_sub = Some(Subscriber::connect(
+            &zmq_ctx,
+            Channel::SimVehicleState.connect_endpoint(),
+            Channel::SimVehicleState.topic(),
+        )?);
+        ch7_pub = Some(Publisher::bind(
+            &zmq_ctx,
+            Channel::SimControl.bind_endpoint(),
+            Channel::SimControl.topic(),
+        )?);
+    }
+
     info!("ZMQ: publishing VehicleState on {}, subscribing ControlCommand on {}",
           ch3_endpoint, ch2_endpoint);
 
@@ -80,12 +101,18 @@ fn main() -> Result<()> {
     let chassis_state = Arc::new(ChassisState::new());
     let estop_active = Arc::new(AtomicBool::new(false));
 
-    // Start chassis driver thread
-    let mut chassis_driver = ChassisDriver::new(
-        Arc::clone(&chassis_state),
-        config.chassis.clone(),
-    );
-    chassis_driver.start()?;
+    // Start chassis driver thread (only in real mode)
+    let mut chassis_driver = if sim_mode {
+        info!("SIM MODE: chassis driver disabled");
+        None
+    } else {
+        let mut driver = ChassisDriver::new(
+            Arc::clone(&chassis_state),
+            config.chassis.clone(),
+        );
+        driver.start()?;
+        Some(driver)
+    };
 
     // Initialize components
     let mut kinematics = KinematicsEngine::new(config.kinematics.clone());
@@ -140,6 +167,22 @@ fn main() -> Result<()> {
         }
 
         // --- 3. Read chassis feedback and update odometry ---
+        // In sim mode, update chassis_state from CH6 (SimVehicleState)
+        if let Some(ref mut sub) = ch6_sub {
+            if let Ok(Some(sim_vs)) = sub.recv::<limo_proto::SimVehicleState>(Duration::from_millis(1)) {
+                let pose = sim_vs.pose.unwrap_or_default();
+                let vel = sim_vs.velocity.unwrap_or_default();
+                chassis_state.set_feedback(chassis::ChassisFeedback {
+                    left_wheel_rpm: 0.0,
+                    right_wheel_rpm: 0.0,
+                    steering_angle: sim_vs.steering_angle,
+                    battery_voltage: sim_vs.battery_voltage,
+                    error_code: 0,
+                    timestamp_ns: now_ns(),
+                });
+            }
+        }
+
         let feedback = chassis_state.get_feedback();
         let (odom_pose, odom_vel) = kinematics.update_odometry(&feedback, dt);
 
@@ -163,7 +206,24 @@ fn main() -> Result<()> {
             }
         }
 
-        // --- 5. Publish VehicleState on CH3 ---
+        // --- 5. Forward control to sim (CH7) in sim mode ---
+        if let Some(ref mut pub7) = ch7_pub {
+            let motor_cmd = chassis_state.get_command();
+            let sim_cmd = limo_proto::SimControlCommand {
+                header: Some(limo_proto::Header {
+                    timestamp_ns: now_ns(),
+                    sequence: cycle as u32,
+                    frame_id: "".into(),
+                }),
+                linear_velocity: motor_cmd.linear_vel as f32,
+                angular_velocity: motor_cmd.angular_vel as f32,
+                steering_angle: kinematics.velocity_to_steering(&motor_cmd) as f32,
+                emergency_stop: estop_active.load(Ordering::Acquire),
+            };
+            let _ = pub7.publish(&sim_cmd);
+        }
+
+        // --- 6. Publish VehicleState on CH3 ---
         if last_state_pub.elapsed() >= state_pub_interval {
             let vehicle_state = limo_proto::VehicleState {
                 header: Some(limo_proto::Header {
@@ -224,7 +284,7 @@ fn main() -> Result<()> {
     info!("Shutting down Control...");
     chassis_state.set_command(MotorCommand::default());
     thread::sleep(Duration::from_millis(50));
-    chassis_driver.stop();
+    if let Some(mut driver) = chassis_driver { driver.stop(); }
     info!("=== Control Process Stopped ===");
 
     Ok(())

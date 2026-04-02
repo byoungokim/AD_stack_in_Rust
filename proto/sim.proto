@@ -1,0 +1,47 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+import "sensor.proto";
+import "control.proto";
+
+// CH5: Isaac Sim → SensPerc (replaces hardware drivers in sim mode)
+message SimSensorData {
+  Header header = 1;
+
+  // Camera
+  bytes camera_image = 2;      // raw or compressed image bytes
+  uint32 camera_width = 3;
+  uint32 camera_height = 4;
+  string camera_encoding = 5;  // "rgb8", "bgr8", "jpeg"
+
+  // LiDAR
+  LaserScan lidar_scan = 6;
+
+  // IMU
+  ImuReading imu = 7;
+
+  // Ground truth pose (available in sim, not in real)
+  Pose2D ground_truth_pose = 8;
+  Twist2D ground_truth_velocity = 9;
+}
+
+// CH6: Isaac Sim → Control (replaces chassis feedback in sim mode)
+message SimVehicleState {
+  Header header = 1;
+  Pose2D pose = 2;             // from sim physics
+  Twist2D velocity = 3;        // from sim physics
+  float steering_angle = 4;    // current steering angle
+  float battery_voltage = 5;   // simulated
+  uint32 drive_mode = 6;       // DriveMode enum value
+  bool collision_detected = 7; // sim can detect collisions
+}
+
+// CH7: Control → Isaac Sim (replaces serial motor commands in sim mode)
+message SimControlCommand {
+  Header header = 1;
+  float linear_velocity = 2;   // m/s, desired forward speed
+  float angular_velocity = 3;  // rad/s, desired yaw rate
+  float steering_angle = 4;    // radians, desired steering (Ackermann)
+  bool emergency_stop = 5;
+}
