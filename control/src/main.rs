@@ -11,7 +11,6 @@
 mod chassis;
 mod config;
 mod kinematics;
-mod proto;
 mod tracker;
 mod watchdog;
 
@@ -21,14 +20,16 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use chassis::{ChassisDriver, ChassisState, MotorCommand};
 use config::{load_config, ControlConfig};
 use kinematics::KinematicsEngine;
-use tracker::{TrajectoryPoint, TrajectoryTracker};
+use tracker::TrajectoryTracker;
 use watchdog::Watchdog;
+
+use limo_transport::{Channel, Publisher, Subscriber};
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -61,6 +62,20 @@ fn main() -> Result<()> {
 
     ctrlc_handler();
 
+    // --- ZMQ setup ---
+    let zmq_ctx = zmq::Context::new();
+
+    // CH3 publisher: VehicleState → SensPerc + Planning
+    let ch3_endpoint = config.transport.ch3_endpoint.as_str();
+    let mut ch3_pub = Publisher::bind(&zmq_ctx, ch3_endpoint, Channel::VehicleState.topic())?;
+
+    // CH2 subscriber: ControlCommand from Planning
+    let ch2_endpoint = config.transport.ch2_endpoint.as_str();
+    let mut ch2_sub = Subscriber::connect(&zmq_ctx, ch2_endpoint, Channel::ControlCommand.topic())?;
+
+    info!("ZMQ: publishing VehicleState on {}, subscribing ControlCommand on {}",
+          ch3_endpoint, ch2_endpoint);
+
     // Shared state
     let chassis_state = Arc::new(ChassisState::new());
     let estop_active = Arc::new(AtomicBool::new(false));
@@ -83,10 +98,6 @@ fn main() -> Result<()> {
         Arc::clone(&estop_active),
     );
 
-    // TODO: Start ZMQ subscriber for CH2 (ControlCommand from Planning)
-    // TODO: Start ZMQ publisher for CH3 (VehicleState)
-    // For now, the control loop runs with the watchdog and chassis in dummy mode.
-
     info!("Control process running — entering main loop");
 
     let control_rate = config.chassis.rate_hz;
@@ -99,64 +110,107 @@ fn main() -> Result<()> {
     while !SHUTDOWN.load(Ordering::Acquire) {
         let cycle_start = Instant::now();
 
-        // --- 1. Watchdog check ---
+        // --- 1. Check for incoming ControlCommand (non-blocking) ---
+        match ch2_sub.recv::<limo_proto::ControlCommand>(Duration::from_millis(1)) {
+            Ok(Some(cmd)) => {
+                watchdog_monitor.notify_command_received();
+
+                if cmd.emergency_stop {
+                    watchdog_monitor.trigger_estop(watchdog::EstopReason::ExplicitRequest);
+                } else if let Some(limo_proto::control_command::Command::VelocityCmd(twist)) = cmd.command {
+                    // Direct velocity command
+                    let motor = MotorCommand {
+                        linear_vel: twist.linear_x,
+                        angular_vel: twist.angular_z,
+                    };
+                    let clamped = kinematics.clamp_command(&motor);
+                    chassis_state.set_command(clamped);
+                }
+                // TODO: handle trajectory_cmd variant
+            }
+            Ok(None) => {} // timeout, no message
+            Err(e) => {
+                debug!("CH2 recv error: {:#}", e);
+            }
+        }
+
+        // --- 2. Watchdog check ---
         if let Some(reason) = watchdog_monitor.check() {
             debug!("Watchdog triggered: {:?}", reason);
         }
 
-        // --- 2. Read chassis feedback and update odometry ---
+        // --- 3. Read chassis feedback and update odometry ---
         let feedback = chassis_state.get_feedback();
         let (odom_pose, odom_vel) = kinematics.update_odometry(&feedback, dt);
 
-        // Update watchdog with current speed
         watchdog_monitor.update_speed(odom_vel.linear_x);
 
-        // --- 3. Compute motor command ---
-        let motor_cmd = if estop_active.load(Ordering::Acquire) {
-            // E-STOP: controlled deceleration
+        // --- 4. E-stop override ---
+        if estop_active.load(Ordering::Acquire) {
             let decel_vel = watchdog_monitor.deceleration_velocity(dt);
-            MotorCommand {
+            chassis_state.set_command(MotorCommand {
                 linear_vel: decel_vel,
                 angular_vel: 0.0,
-            }
+            });
         } else if tracker.has_trajectory() {
-            // Normal: follow trajectory
-            tracker
-                .compute(&kinematics::OdomPose {
+            if let Some(cmd) = tracker.compute(&kinematics::OdomPose {
+                x: odom_pose.x,
+                y: odom_pose.y,
+                theta: odom_pose.theta,
+            }) {
+                let clamped = kinematics.clamp_command(&cmd);
+                chassis_state.set_command(clamped);
+            }
+        }
+
+        // --- 5. Publish VehicleState on CH3 ---
+        if last_state_pub.elapsed() >= state_pub_interval {
+            let vehicle_state = limo_proto::VehicleState {
+                header: Some(limo_proto::Header {
+                    timestamp_ns: now_ns(),
+                    sequence: cycle as u32,
+                    frame_id: "odom".into(),
+                }),
+                odometry_pose: Some(limo_proto::Pose2D {
                     x: odom_pose.x,
                     y: odom_pose.y,
                     theta: odom_pose.theta,
-                })
-                .map(|cmd| kinematics.clamp_command(&cmd))
-                .unwrap_or_default()
-        } else {
-            // No trajectory: hold position (zero velocity)
-            MotorCommand::default()
-        };
+                }),
+                odometry_velocity: Some(limo_proto::Twist2D {
+                    linear_x: odom_vel.linear_x,
+                    linear_y: 0.0,
+                    angular_z: odom_vel.angular_z,
+                }),
+                steering_angle: feedback.steering_angle,
+                drive_mode: limo_proto::DriveMode::DriveAckermann as i32,
+                battery_voltage: feedback.battery_voltage,
+                ctrl_status: if estop_active.load(Ordering::Acquire) {
+                    limo_proto::ControllerStatus::CtrlEstop as i32
+                } else {
+                    limo_proto::ControllerStatus::CtrlActive as i32
+                },
+            };
 
-        // --- 4. Send to chassis ---
-        chassis_state.set_command(motor_cmd);
+            if let Err(e) = ch3_pub.publish(&vehicle_state) {
+                warn!("Failed to publish VehicleState: {:#}", e);
+            }
 
-        // --- 5. Publish VehicleState at configured rate ---
-        if last_state_pub.elapsed() >= state_pub_interval {
-            // TODO: Serialize VehicleState proto and publish on CH3
-            // For now, just log periodically
             last_state_pub = Instant::now();
         }
 
         // --- Logging ---
         cycle += 1;
         if cycle % (control_rate as u64 * 5) == 0 {
-            let fb = chassis_state.get_feedback();
             info!(
-                "Control cycle {}: pose=({:.2}, {:.2}, {:.1}°) vel={:.2} m/s bat={:.1}V estop={}",
+                "Control cycle {}: pose=({:.2}, {:.2}, {:.1}°) vel={:.2} m/s bat={:.1}V estop={} ch3_sent={}",
                 cycle,
                 odom_pose.x,
                 odom_pose.y,
                 odom_pose.theta.to_degrees(),
                 odom_vel.linear_x,
-                fb.battery_voltage,
+                feedback.battery_voltage,
                 estop_active.load(Ordering::Acquire),
+                ch3_pub.msg_count(),
             );
         }
 
@@ -169,11 +223,18 @@ fn main() -> Result<()> {
     // Shutdown: send zero velocity
     info!("Shutting down Control...");
     chassis_state.set_command(MotorCommand::default());
-    thread::sleep(Duration::from_millis(50)); // let chassis driver send it
+    thread::sleep(Duration::from_millis(50));
     chassis_driver.stop();
     info!("=== Control Process Stopped ===");
 
     Ok(())
+}
+
+fn now_ns() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }
 
 fn ctrlc_handler() {

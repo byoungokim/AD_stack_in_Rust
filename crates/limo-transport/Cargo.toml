@@ -1,0 +1,17 @@
+[package]
+name = "limo-transport"
+version = "0.1.0"
+edition = "2021"
+description = "Limo Drive - ZMQ pub/sub transport with Protobuf serialization"
+
+[dependencies]
+limo-proto = { path = "../limo-proto" }
+prost = "0.13"
+zmq = "0.10"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+crossbeam-channel = "0.5"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

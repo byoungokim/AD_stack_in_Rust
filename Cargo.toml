@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/limo-proto",
+    "crates/limo-transport",
+    "sensperc",
+    "control",
+]
