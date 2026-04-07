@@ -1,15 +1,12 @@
 /// Configuration for the Control process.
 use serde::Deserialize;
 
-use crate::chassis::ChassisConfig;
 use crate::kinematics::KinematicsConfig;
 use crate::tracker::TrackerConfig;
 use crate::watchdog::WatchdogConfig;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ControlConfig {
-    #[serde(default)]
-    pub chassis: ChassisConfig,
     #[serde(default)]
     pub tracker: TrackerConfig,
     #[serde(default)]
@@ -25,9 +22,9 @@ pub struct ControlConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct TransportConfig {
     #[serde(default = "default_ch2_endpoint")]
-    pub ch2_endpoint: String, // subscribe ControlCommand
+    pub ch2_endpoint: String,
     #[serde(default = "default_ch3_endpoint")]
-    pub ch3_endpoint: String, // publish VehicleState
+    pub ch3_endpoint: String,
 }
 
 fn default_ch2_endpoint() -> String { "tcp://localhost:5552".into() }
@@ -59,7 +56,6 @@ impl Default for StatePublisherConfig {
 impl Default for ControlConfig {
     fn default() -> Self {
         Self {
-            chassis: ChassisConfig::default(),
             tracker: TrackerConfig::default(),
             kinematics: KinematicsConfig::default(),
             watchdog: WatchdogConfig::default(),

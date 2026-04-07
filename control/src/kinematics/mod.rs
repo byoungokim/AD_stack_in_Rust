@@ -4,7 +4,25 @@
 /// Supports Ackermann and differential drive modes for the Limo Pro.
 use serde::Deserialize;
 
-use crate::chassis::{ChassisFeedback, MotorCommand};
+/// Local feedback type for kinematics computation.
+/// Converted from limo_hal::ChassisFeedback via `to_kinematics_feedback()`.
+pub struct KinematicsFeedback {
+    pub left_wheel_rpm: f32,
+    pub right_wheel_rpm: f32,
+    pub steering_angle: f32,
+}
+
+/// Convert HAL ChassisFeedback to the local type.
+pub fn to_kinematics_feedback(fb: &limo_hal::ChassisFeedback) -> KinematicsFeedback {
+    KinematicsFeedback {
+        left_wheel_rpm: fb.left_wheel_rpm,
+        right_wheel_rpm: fb.right_wheel_rpm,
+        steering_angle: fb.steering_angle,
+    }
+}
+
+/// Re-export MotorCommand from HAL for compatibility.
+pub use limo_hal::MotorCommand;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct KinematicsConfig {
@@ -97,7 +115,7 @@ impl KinematicsEngine {
     /// Returns the updated pose and velocity.
     pub fn update_odometry(
         &mut self,
-        feedback: &ChassisFeedback,
+        feedback: &KinematicsFeedback,
         dt: f64,
     ) -> (OdomPose, OdomVelocity) {
         let (linear_vel, angular_vel) = match self.config.mode.as_str() {
@@ -122,7 +140,7 @@ impl KinematicsEngine {
     }
 
     /// Compute velocity from wheel RPMs using differential drive model.
-    fn differential_odom(&self, feedback: &ChassisFeedback) -> (f64, f64) {
+    fn differential_odom(&self, feedback: &KinematicsFeedback) -> (f64, f64) {
         let left_vel = rpm_to_vel(feedback.left_wheel_rpm, self.config.wheel_radius);
         let right_vel = rpm_to_vel(feedback.right_wheel_rpm, self.config.wheel_radius);
 
@@ -133,7 +151,7 @@ impl KinematicsEngine {
     }
 
     /// Compute velocity from wheel RPMs + steering angle using Ackermann model.
-    fn ackermann_odom(&self, feedback: &ChassisFeedback) -> (f64, f64) {
+    fn ackermann_odom(&self, feedback: &KinematicsFeedback) -> (f64, f64) {
         let left_vel = rpm_to_vel(feedback.left_wheel_rpm, self.config.wheel_radius);
         let right_vel = rpm_to_vel(feedback.right_wheel_rpm, self.config.wheel_radius);
 
@@ -180,10 +198,10 @@ mod tests {
         let mut engine = KinematicsEngine::new(config);
 
         // Both wheels at same RPM → straight line
-        let fb = ChassisFeedback {
+        let fb = KinematicsFeedback {
             left_wheel_rpm: 100.0,
             right_wheel_rpm: 100.0,
-            ..Default::default()
+            steering_angle: 0.0,
         };
 
         let (pose, vel) = engine.update_odometry(&fb, 0.1);
@@ -202,10 +220,10 @@ mod tests {
         let mut engine = KinematicsEngine::new(config);
 
         // Right wheel faster → turn left
-        let fb = ChassisFeedback {
+        let fb = KinematicsFeedback {
             left_wheel_rpm: 50.0,
             right_wheel_rpm: 100.0,
-            ..Default::default()
+            steering_angle: 0.0,
         };
 
         let (_pose, vel) = engine.update_odometry(&fb, 0.1);

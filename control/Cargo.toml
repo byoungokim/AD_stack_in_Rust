@@ -12,6 +12,7 @@ path = "src/main.rs"
 # Shared crates
 limo-proto = { path = "../crates/limo-proto" }
 limo-transport = { path = "../crates/limo-transport" }
+limo-hal = { path = "../crates/limo-hal" }
 
 # Protobuf
 prost = "0.13"

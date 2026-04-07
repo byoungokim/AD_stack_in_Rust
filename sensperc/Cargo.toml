@@ -12,16 +12,13 @@ path = "src/main.rs"
 # Shared crates
 limo-proto = { path = "../crates/limo-proto" }
 limo-transport = { path = "../crates/limo-transport" }
+limo-hal = { path = "../crates/limo-hal" }
 
 # Protobuf
 prost = "0.13"
 
-# Serial port (LiDAR, IMU)
-serialport = "4.6"
-
 # Concurrency
 crossbeam = "0.8"
-crossbeam-channel = "0.5"
 
 # Logging
 tracing = "0.1"
@@ -31,19 +28,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 
-# Math
+# Math (for store types)
 nalgebra = "0.33"
 
 # Error handling
 anyhow = "1"
-thiserror = "2"
 
 # Signal handling
 ctrlc = "3.4"
 
-# ZMQ (for direct use alongside limo-transport)
+# ZMQ (for aggregator CH1/CH3)
 zmq = "0.10"
-
-# Camera (V4L2 on Linux only)
-[target.'cfg(target_os = "linux")'.dependencies]
-v4l = "0.14"

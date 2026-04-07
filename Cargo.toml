@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/limo-proto",
     "crates/limo-transport",
+    "crates/limo-hal",
     "crates/limo-sim-bridge",
     "sensperc",
     "control",

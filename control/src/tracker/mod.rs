@@ -6,7 +6,7 @@
 /// - Stanley: heading + cross-track error controller
 use serde::Deserialize;
 
-use crate::chassis::MotorCommand;
+use limo_hal::MotorCommand;
 use crate::kinematics::OdomPose;
 
 #[derive(Debug, Clone, Deserialize)]
