@@ -165,18 +165,29 @@ fn aggregator_loop(
         let cycle_start = Instant::now();
 
         // --- Read VehicleState from CH3 (non-blocking) ---
+        // Use odometry as fallback localization when no SLAM or sim ground truth
         match ch3_sub.recv::<limo_proto::VehicleState>(Duration::from_millis(1)) {
             Ok(Some(vs)) => {
-                // Store for sensor fusion
-                // TODO: feed into EKF when implemented
-                debug!(
-                    "CH3 VehicleState received: pose=({:.2}, {:.2}), bat={:.1}V",
-                    vs.odometry_pose.as_ref().map(|p| p.x).unwrap_or(0.0),
-                    vs.odometry_pose.as_ref().map(|p| p.y).unwrap_or(0.0),
-                    vs.battery_voltage,
-                );
+                if let Some(pose) = &vs.odometry_pose {
+                    // Only use odometry if no higher-priority source (sim/SLAM) is fresh
+                    if store.latest_pose.age_secs() > 0.5 {
+                        store.latest_pose.store(store::types::Pose2D {
+                            x: pose.x, y: pose.y, theta: pose.theta,
+                        });
+                        store.localization_confidence.store(0.6); // odometry = moderate
+                    }
+                }
+                if let Some(vel) = &vs.odometry_velocity {
+                    if store.latest_velocity.age_secs() > 0.5 {
+                        store.latest_velocity.store(store::types::Twist2D {
+                            linear_x: vel.linear_x,
+                            linear_y: vel.linear_y,
+                            angular_z: vel.angular_z,
+                        });
+                    }
+                }
             }
-            Ok(None) => {} // timeout
+            Ok(None) => {}
             Err(e) => {
                 debug!("CH3 recv error: {:#}", e);
             }
@@ -186,7 +197,11 @@ fn aggregator_loop(
         let latest_camera = store.camera_buffer.pop_latest();
         let latest_lidar = store.lidar_buffer.pop_latest();
         let _latest_imu = store.imu_buffer.pop_latest();
-        let _latest_fused = store.latest_fused_state.load();
+
+        // --- Read localization from store (set by sim/SLAM/odometry) ---
+        let pose = store.latest_pose.load().unwrap_or_default();
+        let velocity = store.latest_velocity.load().unwrap_or_default();
+        let loc_confidence = store.localization_confidence.load().unwrap_or(0.0);
 
         // --- Compose and publish WorldState on CH1 ---
         let world_state = limo_proto::WorldState {
@@ -196,14 +211,14 @@ fn aggregator_loop(
                 frame_id: "world".into(),
             }),
             robot_pose: Some(limo_proto::Pose2D {
-                x: 0.0, // TODO: from SLAM/localization
-                y: 0.0,
-                theta: 0.0,
+                x: pose.x,
+                y: pose.y,
+                theta: pose.theta,
             }),
             robot_velocity: Some(limo_proto::Twist2D {
-                linear_x: 0.0, // TODO: from sensor fusion
-                linear_y: 0.0,
-                angular_z: 0.0,
+                linear_x: velocity.linear_x,
+                linear_y: velocity.linear_y,
+                angular_z: velocity.angular_z,
             }),
             detections: if latest_camera.is_some() {
                 // TODO: run object detection
@@ -228,7 +243,7 @@ fn aggregator_loop(
             } else {
                 None
             },
-            localization_confidence: 0.0, // TODO: from SLAM
+            localization_confidence: loc_confidence,
         };
 
         if let Err(e) = ch1_pub.publish(&world_state) {
@@ -318,6 +333,23 @@ fn sim_sensor_loop(store: &Arc<SensorStore>) -> Result<()> {
                         sequence: sim_data.header.as_ref().map(|h| h.sequence).unwrap_or(0),
                     };
                     store.push_imu_reading(reading);
+                }
+
+                // Store ground truth pose/velocity from sim (highest priority)
+                if let Some(gt_pose) = sim_data.ground_truth_pose {
+                    store.latest_pose.store(store::types::Pose2D {
+                        x: gt_pose.x,
+                        y: gt_pose.y,
+                        theta: gt_pose.theta,
+                    });
+                    store.localization_confidence.store(1.0); // ground truth = perfect
+                }
+                if let Some(gt_vel) = sim_data.ground_truth_velocity {
+                    store.latest_velocity.store(store::types::Twist2D {
+                        linear_x: gt_vel.linear_x,
+                        linear_y: gt_vel.linear_y,
+                        angular_z: gt_vel.angular_z,
+                    });
                 }
             }
             Ok(None) => {} // timeout

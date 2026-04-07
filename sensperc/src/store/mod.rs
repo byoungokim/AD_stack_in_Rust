@@ -25,6 +25,12 @@ pub struct SensorStore {
     // --- Atomic slots for processed results (processors → aggregator) ---
     pub latest_fused_state: AtomicSlot<FusedState>,
 
+    // --- Localization: pose and velocity from any source ---
+    // Updated by: sim ground truth (CH5), odometry (CH3), or SLAM
+    pub latest_pose: AtomicSlot<Pose2D>,
+    pub latest_velocity: AtomicSlot<Twist2D>,
+    pub localization_confidence: AtomicSlot<f32>,
+
     // --- Counters for monitoring ---
     pub frame_count: AtomicU64,
     pub scan_count: AtomicU64,
@@ -38,6 +44,9 @@ impl SensorStore {
             lidar_buffer: RingBuffer::new(8),    // ~800ms of scans at 10Hz
             imu_buffer: RingBuffer::new(128),    // ~1.28s of readings at 100Hz
             latest_fused_state: AtomicSlot::new(),
+            latest_pose: AtomicSlot::new(),
+            latest_velocity: AtomicSlot::new(),
+            localization_confidence: AtomicSlot::new(),
             frame_count: AtomicU64::new(0),
             scan_count: AtomicU64::new(0),
             imu_count: AtomicU64::new(0),
