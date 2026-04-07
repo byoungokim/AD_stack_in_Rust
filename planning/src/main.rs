@@ -63,6 +63,9 @@ fn main() -> Result<()> {
 
     ctrlc_handler();
 
+    // Start heartbeat manager
+    let mut heartbeat = limo_transport::HeartbeatManager::start("planning")?;
+
     // --- ZMQ setup ---
     let zmq_ctx = zmq::Context::new();
 
@@ -242,6 +245,7 @@ fn main() -> Result<()> {
         }
     }
 
+    heartbeat.stop();
     info!("=== Planning Process Stopped ===");
     Ok(())
 }

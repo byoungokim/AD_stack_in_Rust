@@ -60,6 +60,9 @@ fn main() -> Result<()> {
 
     ctrlc_handler();
 
+    // Start heartbeat manager
+    let mut heartbeat = limo_transport::HeartbeatManager::start("sensperc")?;
+
     // Create shared sensor store
     let store = Arc::new(SensorStore::new());
 
@@ -125,6 +128,7 @@ fn main() -> Result<()> {
     if let Some(mut l) = lidar { l.stop(); }
     if let Some(mut i) = imu { i.stop(); }
     let _ = agg_handle.join();
+    heartbeat.stop();
     info!("=== SensPerc Process Stopped ===");
 
     Ok(())

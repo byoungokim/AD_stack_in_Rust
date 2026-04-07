@@ -29,7 +29,7 @@ use kinematics::KinematicsEngine;
 use tracker::TrajectoryTracker;
 use watchdog::Watchdog;
 
-use limo_transport::{Channel, Publisher, Subscriber};
+use limo_transport::{Channel, HeartbeatManager, Publisher, Subscriber};
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -125,6 +125,9 @@ fn main() -> Result<()> {
         Arc::clone(&estop_active),
     );
 
+    // Start heartbeat manager (publishes on :5572, subscribes to peers)
+    let mut heartbeat = HeartbeatManager::start("control")?;
+
     info!("Control process running — entering main loop");
 
     let control_rate = config.chassis.rate_hz;
@@ -161,7 +164,17 @@ fn main() -> Result<()> {
             }
         }
 
-        // --- 2. Watchdog check ---
+        // --- 2. Feed peer heartbeat status into watchdog ---
+        let hb_health = heartbeat.peer_health();
+        for peer in &["sensperc", "planning"] {
+            if hb_health.status(peer) == limo_transport::PeerStatus::Nominal
+                || hb_health.status(peer) == limo_transport::PeerStatus::Warn
+            {
+                watchdog_monitor.notify_heartbeat(peer);
+            }
+        }
+
+        // --- 3. Watchdog check ---
         if let Some(reason) = watchdog_monitor.check() {
             debug!("Watchdog triggered: {:?}", reason);
         }
@@ -280,11 +293,12 @@ fn main() -> Result<()> {
         }
     }
 
-    // Shutdown: send zero velocity
+    // Shutdown
     info!("Shutting down Control...");
     chassis_state.set_command(MotorCommand::default());
     thread::sleep(Duration::from_millis(50));
     if let Some(mut driver) = chassis_driver { driver.stop(); }
+    heartbeat.stop();
     info!("=== Control Process Stopped ===");
 
     Ok(())
