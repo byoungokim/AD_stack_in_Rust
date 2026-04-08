@@ -1,0 +1,47 @@
+# Test track scenario: navigate through the test environment
+name: test_track_run
+scenario_type: sequence
+speed_limit: 0.4
+
+waypoints:
+  - x: -3.0
+    y: -3.0
+    theta: 0.0
+    tolerance: 0.3
+    speed: 0.4
+    label: "start_area"
+
+  - x: 0.0
+    y: -3.0
+    theta: 0.0
+    tolerance: 0.3
+    speed: 0.3
+    label: "mid_south"
+
+  - x: 3.0
+    y: -3.0
+    theta: 1.57
+    tolerance: 0.3
+    speed: 0.3
+    label: "turn_east"
+
+  - x: 3.0
+    y: 3.0
+    theta: 3.14
+    tolerance: 0.3
+    speed: 0.3
+    label: "turn_north"
+
+  - x: -3.0
+    y: 3.0
+    theta: -1.57
+    tolerance: 0.3
+    speed: 0.3
+    label: "turn_west"
+
+  - x: -3.0
+    y: -3.0
+    theta: 0.0
+    tolerance: 0.2
+    speed: 0.3
+    label: "finish"

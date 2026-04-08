@@ -90,8 +90,22 @@ fn main() -> Result<()> {
         Channel::ControlCommand.topic(),
     )?;
 
+    // CH8 subscriber: ScenarioCommand from Scenario Manager
+    let mut ch8_sub = Subscriber::connect(
+        &zmq_ctx,
+        Channel::ScenarioCommand.connect_endpoint(),
+        Channel::ScenarioCommand.topic(),
+    )?;
+
+    // CH9 publisher: ScenarioStatus feedback
+    let mut ch9_pub = Publisher::bind(
+        &zmq_ctx,
+        Channel::ScenarioStatus.bind_endpoint(),
+        Channel::ScenarioStatus.topic(),
+    )?;
+
     info!(
-        "ZMQ: sub CH1={}, sub CH3={}, pub CH2={}",
+        "ZMQ: sub CH1={}, sub CH3={}, pub CH2={}, sub CH8, pub CH9",
         config.transport.ch1_endpoint,
         config.transport.ch3_endpoint,
         config.transport.ch2_endpoint,
@@ -108,6 +122,13 @@ fn main() -> Result<()> {
     let mut global_path: Vec<PathWaypoint> = Vec::new();
     let mut last_global_plan = Instant::now();
     let global_plan_interval = Duration::from_secs(1); // 1Hz
+
+    // Scenario state
+    let mut scenario_waypoints: Vec<limo_proto::NavigationGoal> = Vec::new();
+    let mut scenario_type = limo_proto::ScenarioType::ScenarioNone as i32;
+    let mut current_wp_index: usize = 0;
+    let mut scenario_active = false;
+    let mut scenario_speed_limit: f64 = 0.5;
 
     let local_rate = config.local_planner.rate_hz;
     let interval = Duration::from_secs_f64(1.0 / local_rate as f64);
@@ -136,11 +157,42 @@ fn main() -> Result<()> {
             Err(e) => { debug!("CH3 recv error: {:#}", e); None }
         };
 
-        // --- 3. Build robot state ---
+        // --- 3. Receive ScenarioCommand from CH8 ---
+        if let Ok(Some(cmd)) = ch8_sub.recv::<limo_proto::ScenarioCommand>(Duration::from_millis(0)) {
+            if cmd.start && scenario_active && cmd.waypoints.len() == scenario_waypoints.len() {
+                // Skip duplicate start commands (re-sends from scenario manager)
+            } else if cmd.start {
+                scenario_waypoints = cmd.waypoints.clone();
+                scenario_type = cmd.r#type;
+                current_wp_index = 0;
+                scenario_active = !scenario_waypoints.is_empty();
+                if cmd.global_speed_limit > 0.0 {
+                    scenario_speed_limit = cmd.global_speed_limit as f64;
+                }
+
+                if scenario_active {
+                    let wp = &scenario_waypoints[0];
+                    if let Some(pose) = &wp.goal_pose {
+                        behavior.set_goal(behavior::Goal {
+                            x: pose.x, y: pose.y, theta: pose.theta,
+                        });
+                        info!("Scenario started: type={}, {} waypoints, first='{}' ({:.1},{:.1})",
+                              cmd.r#type, scenario_waypoints.len(),
+                              wp.label, pose.x, pose.y);
+                    }
+                }
+            } else {
+                scenario_active = false;
+                behavior.clear_goal();
+                info!("Scenario stopped");
+            }
+        }
+
+        // --- 4. Build robot state ---
         let robot_state = build_robot_state(&world_state, &vehicle_state);
         let obstacles = extract_obstacles(&world_state);
 
-        // --- 4. Behavior planner ---
+        // --- 5. Behavior planner ---
         let behavior_input = BehaviorInput {
             robot_x: robot_state.x,
             robot_y: robot_state.y,
@@ -156,15 +208,52 @@ fn main() -> Result<()> {
 
         let behavior_out = behavior.update(&behavior_input);
 
-        // --- 5. Global planner (1Hz) ---
+        // --- 5a. Advance scenario waypoints on goal reached ---
+        if scenario_active && behavior_out.state == behavior::DrivingState::GoalReached {
+            current_wp_index += 1;
+
+            let is_patrol = scenario_type == limo_proto::ScenarioType::ScenarioPatrol as i32;
+
+            if current_wp_index >= scenario_waypoints.len() {
+                if is_patrol {
+                    current_wp_index = 0; // loop
+                    info!("Patrol: looping back to first waypoint");
+                } else {
+                    scenario_active = false;
+                    behavior.clear_goal();
+                    info!("Scenario complete: all {} waypoints reached", scenario_waypoints.len());
+                }
+            }
+
+            if scenario_active {
+                let wp = &scenario_waypoints[current_wp_index];
+                if let Some(pose) = &wp.goal_pose {
+                    behavior.set_goal(behavior::Goal {
+                        x: pose.x, y: pose.y, theta: pose.theta,
+                    });
+                    info!("Advancing to waypoint {}/{}: '{}' ({:.1},{:.1})",
+                          current_wp_index + 1, scenario_waypoints.len(),
+                          wp.label, pose.x, pose.y);
+                }
+            }
+        }
+
+        // --- 6. Global planner (1Hz) ---
         if behavior_out.replan_requested && last_global_plan.elapsed() >= global_plan_interval {
-            // TODO: use actual goal from behavior/external command
             let start = Pose {
                 x: robot_state.x,
                 y: robot_state.y,
                 theta: robot_state.theta,
             };
-            let goal = Pose { x: 5.0, y: 0.0, theta: 0.0 }; // placeholder
+
+            // Use current scenario waypoint as goal
+            let goal = if scenario_active && current_wp_index < scenario_waypoints.len() {
+                let wp = &scenario_waypoints[current_wp_index];
+                let pose = wp.goal_pose.as_ref().unwrap();
+                Pose { x: pose.x, y: pose.y, theta: pose.theta }
+            } else {
+                Pose { x: robot_state.x, y: robot_state.y, theta: robot_state.theta }
+            };
 
             if let Some(path) = global.plan(&start, &goal, &grid) {
                 global_path = path;
@@ -175,12 +264,13 @@ fn main() -> Result<()> {
             last_global_plan = Instant::now();
         }
 
-        // --- 6. Local planner (10Hz) ---
+        // --- 7. Local planner (10Hz) ---
+        let desired_speed = behavior_out.desired_speed.min(scenario_speed_limit);
         let trad_cmd = local.compute(
             &robot_state,
             &global_path,
             &obstacles,
-            behavior_out.desired_speed,
+            desired_speed,
         );
 
         // --- 7. E2E inference (if enabled) ---
@@ -222,6 +312,32 @@ fn main() -> Result<()> {
 
         if let Err(e) = ch2_pub.publish(&control_cmd) {
             warn!("Failed to publish ControlCommand: {:#}", e);
+        }
+
+        // --- 10. Publish ScenarioStatus on CH9 ---
+        if scenario_active || !scenario_waypoints.is_empty() {
+            let dist_to_goal = if scenario_active && current_wp_index < scenario_waypoints.len() {
+                let wp = &scenario_waypoints[current_wp_index];
+                if let Some(pose) = &wp.goal_pose {
+                    ((robot_state.x - pose.x).powi(2) + (robot_state.y - pose.y).powi(2)).sqrt()
+                } else { 0.0 }
+            } else { 0.0 };
+
+            let status = limo_proto::ScenarioStatus {
+                header: Some(limo_proto::Header {
+                    timestamp_ns: now_ns(), sequence: cycle as u32, frame_id: "".into(),
+                }),
+                active_scenario: scenario_type,
+                current_waypoint_index: current_wp_index as u32,
+                total_waypoints: scenario_waypoints.len() as u32,
+                distance_to_goal: dist_to_goal as f32,
+                goal_reached: behavior_out.state == behavior::DrivingState::GoalReached,
+                scenario_complete: !scenario_active && !scenario_waypoints.is_empty()
+                    && current_wp_index >= scenario_waypoints.len(),
+                active_label: scenario_waypoints.get(current_wp_index)
+                    .map(|wp| wp.label.clone()).unwrap_or_default(),
+            };
+            let _ = ch9_pub.publish(&status);
         }
 
         // --- Logging ---

@@ -26,6 +26,12 @@ pub enum Channel {
     SimVehicleState,
     /// CH7: SimControlCommand (Control → Isaac Sim)
     SimControl,
+
+    // --- Scenario layer channels ---
+    /// CH8: ScenarioCommand (Scenario Manager → Planning)
+    ScenarioCommand,
+    /// CH9: ScenarioStatus (Planning → Scenario Manager)
+    ScenarioStatus,
 }
 
 impl Channel {
@@ -40,6 +46,8 @@ impl Channel {
             Channel::SimSensors => "tcp://*:5560",
             Channel::SimVehicleState => "tcp://*:5561",
             Channel::SimControl => "tcp://*:5562",
+            Channel::ScenarioCommand => "tcp://*:5580",
+            Channel::ScenarioStatus => "tcp://*:5581",
         }
     }
 
@@ -54,6 +62,8 @@ impl Channel {
             Channel::SimSensors => "tcp://localhost:5560",
             Channel::SimVehicleState => "tcp://localhost:5561",
             Channel::SimControl => "tcp://localhost:5562",
+            Channel::ScenarioCommand => "tcp://localhost:5580",
+            Channel::ScenarioStatus => "tcp://localhost:5581",
         }
     }
 
@@ -68,6 +78,8 @@ impl Channel {
             Channel::SimSensors => "sim_sensors",
             Channel::SimVehicleState => "sim_vehicle_state",
             Channel::SimControl => "sim_control",
+            Channel::ScenarioCommand => "scenario_cmd",
+            Channel::ScenarioStatus => "scenario_status",
         }
     }
 
@@ -76,6 +88,14 @@ impl Channel {
         matches!(
             self,
             Channel::SimSensors | Channel::SimVehicleState | Channel::SimControl
+        )
+    }
+
+    /// Whether this channel is part of the scenario layer.
+    pub fn is_scenario_channel(&self) -> bool {
+        matches!(
+            self,
+            Channel::ScenarioCommand | Channel::ScenarioStatus
         )
     }
 }

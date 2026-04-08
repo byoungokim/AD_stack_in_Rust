@@ -5,6 +5,7 @@ members = [
     "crates/limo-transport",
     "crates/limo-hal",
     "crates/limo-sim-bridge",
+    "crates/limo-scenario",
     "sensperc",
     "control",
     "planning",

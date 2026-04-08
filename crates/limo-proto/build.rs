@@ -11,6 +11,7 @@ fn main() -> Result<()> {
             "../../proto/world_state.proto",
             "../../proto/system.proto",
             "../../proto/sim.proto",
+            "../../proto/scenario.proto",
         ],
         &["../../proto/"],
     )?;

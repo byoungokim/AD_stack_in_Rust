@@ -1,0 +1,53 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+
+// CH8: Scenario Manager → Planning
+// Delivers navigation goals and scenario commands.
+
+enum ScenarioType {
+  SCENARIO_NONE = 0;
+  SCENARIO_WAYPOINT = 1;       // Go to a single goal
+  SCENARIO_WAYPOINT_SEQUENCE = 2;  // Follow a sequence of waypoints
+  SCENARIO_PATROL = 3;         // Loop through waypoints repeatedly
+  SCENARIO_PARKING = 4;        // Navigate to a parking spot
+  SCENARIO_FOLLOW_PATH = 5;    // Follow a predefined path exactly
+  SCENARIO_EXPLORE = 6;        // Autonomous exploration (frontier-based)
+}
+
+message NavigationGoal {
+  Header header = 1;
+  Pose2D goal_pose = 2;        // target position and heading
+  float goal_tolerance = 3;    // meters, how close is "arrived"
+  float desired_speed = 4;     // m/s, preferred speed for this goal
+  string label = 5;            // human-readable label (e.g., "parking_spot_A")
+}
+
+message ScenarioCommand {
+  Header header = 1;
+  ScenarioType type = 2;
+
+  // Single goal (WAYPOINT, PARKING)
+  NavigationGoal goal = 3;
+
+  // Multiple goals (WAYPOINT_SEQUENCE, PATROL)
+  repeated NavigationGoal waypoints = 4;
+
+  // Control
+  bool start = 5;              // true = start scenario, false = stop
+  bool pause = 6;              // pause current scenario
+  float global_speed_limit = 7; // m/s, override max speed (0 = use default)
+}
+
+// Planning → Scenario Manager (status feedback)
+message ScenarioStatus {
+  Header header = 1;
+  ScenarioType active_scenario = 2;
+  uint32 current_waypoint_index = 3;
+  uint32 total_waypoints = 4;
+  float distance_to_goal = 5;        // meters
+  bool goal_reached = 6;
+  bool scenario_complete = 7;
+  string active_label = 8;           // label of current target
+}
