@@ -1,288 +1,277 @@
 #!/usr/bin/env python3
-"""Gazebo ↔ ZMQ Bridge for Limo Drive.
+"""Gazebo Harmonic ↔ ZMQ Bridge for Limo Drive.
 
-Bridges Gazebo Harmonic's transport topics to our ZMQ channels:
-  - Gazebo camera/lidar/imu → CH5 (SimSensorData)
-  - Gazebo odometry → CH6 (SimVehicleState)
-  - CH7 (SimControlCommand) → Gazebo cmd_vel
+Reads sensor data and odometry from Gazebo topics, publishes on ZMQ
+channels CH5 (SimSensorData) and CH6 (SimVehicleState).
+Subscribes CH7 (SimControlCommand) and forwards to Gazebo cmd_vel.
 
-Uses the `gz.transport` Python bindings (gz-transport-python)
-or falls back to subprocess `gz topic` calls.
+Uses `gz topic` subprocess calls for Gazebo communication.
 
 Usage:
-    python gz_zmq_bridge.py [--config config/sim_bridge.yaml]
+    python gz_zmq_bridge.py
 """
 
-import argparse
 import json
 import math
 import signal
-import struct
 import subprocess
 import sys
 import threading
 import time
-from typing import Optional
 
 import zmq
 
-# Protobuf imports (generated from our proto files)
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
-try:
-    from proto.gen_py import common_pb2, sensor_pb2, sim_pb2, control_pb2
-    HAS_PROTO = True
-except ImportError:
-    HAS_PROTO = False
-    print("WARNING: Protobuf Python bindings not found. Run 'make proto' first.")
+# --- ZMQ Channel Config ---
+CH5_BIND = "tcp://*:5560"          # SimSensorData → SensPerc
+CH6_BIND = "tcp://*:5561"          # SimVehicleState → Control
+CH7_CONNECT = "tcp://localhost:5562"  # SimControlCommand from Control
 
-# ZMQ channel config
-CH5_BIND = "tcp://*:5560"       # SimSensorData publish
-CH6_BIND = "tcp://*:5561"       # SimVehicleState publish
-CH7_CONNECT = "tcp://localhost:5562"  # SimControlCommand subscribe
-
-# Gazebo topics
+# --- Gazebo Topics ---
 GZ_CMD_VEL = "/limo/cmd_vel"
 GZ_ODOM = "/limo/odom"
-GZ_CAMERA = "/limo/camera"
-GZ_LIDAR = "/limo/lidar"
 GZ_IMU = "/limo/imu"
+GZ_LIDAR = "/limo/lidar"
 
 RUNNING = True
 
 
 def signal_handler(sig, frame):
     global RUNNING
-    print("\nShutting down bridge...")
+    print("\n[bridge] Shutting down...")
     RUNNING = False
 
 
-class GzZmqBridge:
-    """Bridges Gazebo topics to ZMQ channels."""
-
+class GazeboBridge:
     def __init__(self):
         self.ctx = zmq.Context()
 
-        # Publishers (Gazebo → our stack)
-        self.ch5_pub = self.ctx.socket(zmq.PUB)
-        self.ch5_pub.setsockopt(zmq.SNDHWM, 100)
-        self.ch5_pub.setsockopt(zmq.LINGER, 0)
-        self.ch5_pub.bind(CH5_BIND)
+        # CH5 publisher
+        self.ch5 = self.ctx.socket(zmq.PUB)
+        self.ch5.setsockopt(zmq.SNDHWM, 50)
+        self.ch5.setsockopt(zmq.LINGER, 0)
+        self.ch5.bind(CH5_BIND)
 
-        self.ch6_pub = self.ctx.socket(zmq.PUB)
-        self.ch6_pub.setsockopt(zmq.SNDHWM, 100)
-        self.ch6_pub.setsockopt(zmq.LINGER, 0)
-        self.ch6_pub.bind(CH6_BIND)
+        # CH6 publisher
+        self.ch6 = self.ctx.socket(zmq.PUB)
+        self.ch6.setsockopt(zmq.SNDHWM, 50)
+        self.ch6.setsockopt(zmq.LINGER, 0)
+        self.ch6.bind(CH6_BIND)
 
-        # Subscriber (our stack → Gazebo)
-        self.ch7_sub = self.ctx.socket(zmq.SUB)
-        self.ch7_sub.setsockopt(zmq.RCVTIMEO, 50)
-        self.ch7_sub.setsockopt(zmq.LINGER, 0)
-        self.ch7_sub.connect(CH7_CONNECT)
-        self.ch7_sub.subscribe(b"sim_control")
+        # CH7 subscriber
+        self.ch7 = self.ctx.socket(zmq.SUB)
+        self.ch7.setsockopt(zmq.RCVTIMEO, 50)
+        self.ch7.setsockopt(zmq.LINGER, 0)
+        self.ch7.connect(CH7_CONNECT)
+        self.ch7.subscribe(b"sim_control")
 
-        self.sequence = 0
-        print(f"Bridge ready: CH5={CH5_BIND}, CH6={CH6_BIND}, CH7={CH7_CONNECT}")
+        self.seq = 0
+        print(f"[bridge] CH5={CH5_BIND}, CH6={CH6_BIND}, CH7={CH7_CONNECT}")
 
     def run(self):
-        """Main bridge loop."""
-        # Try to use gz.transport Python bindings
-        try:
-            import gz.transport
-            print("Using gz.transport Python bindings")
-            self._run_with_bindings()
-        except ImportError:
-            print("gz.transport not available, using subprocess bridge")
-            self._run_with_subprocess()
+        # Start background listeners for Gazebo topics
+        threads = [
+            threading.Thread(target=self._odom_listener, daemon=True),
+            threading.Thread(target=self._imu_listener, daemon=True),
+            threading.Thread(target=self._lidar_listener, daemon=True),
+            threading.Thread(target=self._cmd_forwarder, daemon=True),
+        ]
+        for t in threads:
+            t.start()
 
-    def _run_with_subprocess(self):
-        """Fallback: use `gz topic` subprocess to echo Gazebo topics."""
-        # Start odom listener thread
-        odom_thread = threading.Thread(target=self._odom_listener, daemon=True)
-        odom_thread.start()
-
-        # Main loop: forward CH7 commands to Gazebo
-        print("Bridge running (subprocess mode)...")
-
+        print("[bridge] Running. Ctrl+C to stop.")
         while RUNNING:
-            # Receive control commands from CH7
-            try:
-                topic_bytes, data = self.ch7_sub.recv_multipart()
+            time.sleep(0.1)
 
-                if HAS_PROTO:
-                    cmd = sim_pb2.SimControlCommand()
-                    cmd.ParseFromString(data)
-                    self._send_cmd_vel(cmd.linear_velocity, cmd.angular_velocity)
-                else:
-                    # Without proto, just log
-                    print(f"CH7: received {len(data)} bytes")
+    def _run_gz_echo(self, topic):
+        """Run `gz topic -e -t <topic>` and yield complete messages."""
+        proc = subprocess.Popen(
+            ["gz", "topic", "-e", "-t", topic],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
 
-            except zmq.Again:
-                pass  # timeout
-            except Exception as e:
-                if RUNNING:
-                    print(f"CH7 error: {e}")
+        buffer = []
+        brace_depth = 0
 
-            time.sleep(0.01)
+        while RUNNING and proc.poll() is None:
+            line = proc.stdout.readline()
+            if not line:
+                time.sleep(0.001)
+                continue
+
+            stripped = line.strip()
+            if not stripped:
+                # Empty line = message boundary in protobuf text format
+                if buffer:
+                    yield "\n".join(buffer)
+                    buffer = []
+                continue
+
+            buffer.append(stripped)
+
+        proc.terminate()
+        proc.wait()
 
     def _odom_listener(self):
-        """Listen to Gazebo odometry via `gz topic -e` and publish on CH6."""
-        print(f"Starting odom listener on {GZ_ODOM}...")
+        """Read /limo/odom and publish on CH6 (SimVehicleState)."""
+        print(f"[bridge] Listening: {GZ_ODOM}")
 
-        try:
-            proc = subprocess.Popen(
-                ["gz", "topic", "-e", "-t", GZ_ODOM],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+        for msg_text in self._run_gz_echo(GZ_ODOM):
+            if not RUNNING:
+                break
 
-            buffer = ""
-            while RUNNING and proc.poll() is None:
-                line = proc.stdout.readline()
-                if not line:
-                    time.sleep(0.01)
-                    continue
+            try:
+                pose_x = self._extract_nested(msg_text, "pose", "position", "x")
+                pose_y = self._extract_nested(msg_text, "pose", "position", "y")
 
-                buffer += line
+                # Extract quaternion and convert to yaw
+                qw = self._extract_nested(msg_text, "pose", "orientation", "w") or 1.0
+                qx = self._extract_nested(msg_text, "pose", "orientation", "x") or 0.0
+                qy = self._extract_nested(msg_text, "pose", "orientation", "y") or 0.0
+                qz = self._extract_nested(msg_text, "pose", "orientation", "z") or 0.0
+                yaw = math.atan2(2.0 * (qw * qz + qx * qy),
+                                 1.0 - 2.0 * (qy * qy + qz * qz))
 
-                # Gazebo outputs protobuf text format, parse when complete
-                if line.strip() == "" and buffer.strip():
-                    self._parse_and_publish_odom(buffer.strip())
-                    buffer = ""
+                lin_x = self._extract_nested(msg_text, "twist", "linear", "x") or 0.0
+                ang_z = self._extract_nested(msg_text, "twist", "angular", "z") or 0.0
 
-            proc.terminate()
-        except FileNotFoundError:
-            print("ERROR: 'gz' command not found. Is Gazebo installed?")
-        except Exception as e:
-            print(f"Odom listener error: {e}")
+                # Build protobuf-like message manually (no proto dependency)
+                # Pack as: topic + simple binary format
+                # For simplicity, publish as JSON-encoded bytes on ZMQ
+                data = {
+                    "timestamp_ns": int(time.time() * 1e9),
+                    "sequence": self.seq,
+                    "pose": {"x": pose_x or 0.0, "y": pose_y or 0.0, "theta": yaw},
+                    "velocity": {"linear_x": lin_x, "angular_z": ang_z},
+                    "steering_angle": 0.0,
+                    "battery_voltage": 12.6,
+                }
+                # Since we need protobuf format for our ZMQ channels,
+                # we'll use the proto Python bindings
+                self._publish_vehicle_state(data)
+                self.seq += 1
 
-    def _parse_and_publish_odom(self, text: str):
-        """Parse Gazebo odom text output and publish as SimVehicleState on CH6."""
-        # Simple text parsing of Gazebo protobuf text format
-        # This is a fallback — proper implementation uses gz.transport bindings
-        try:
-            # Extract position and velocity from text format
-            # Format varies by Gazebo version, this handles common output
-            x = self._extract_float(text, "x:", 0)
-            y = self._extract_float(text, "y:", 0)
-            z = self._extract_float(text, "z:", 0)
+            except Exception as e:
+                pass  # skip parse errors silently
 
-            if HAS_PROTO:
-                msg = sim_pb2.SimVehicleState()
-                msg.header.timestamp_ns = int(time.time() * 1e9)
-                msg.header.sequence = self.sequence
-                msg.header.frame_id = "gz"
-                msg.pose.x = x
-                msg.pose.y = y
-                msg.pose.theta = 0.0  # TODO: extract yaw
-                msg.battery_voltage = 12.6
-                msg.drive_mode = 1  # Ackermann
+    def _imu_listener(self):
+        """Read /limo/imu — for now just log (sensor data goes in CH5)."""
+        print(f"[bridge] Listening: {GZ_IMU}")
+        # IMU data will be bundled into CH5 SimSensorData
+        # For now, we skip detailed IMU bridging
+        for msg_text in self._run_gz_echo(GZ_IMU):
+            if not RUNNING:
+                break
+            # TODO: parse and include in CH5 bundle
 
-                data = msg.SerializeToString()
-                self.ch6_pub.send_multipart([b"sim_vehicle_state", data])
+    def _lidar_listener(self):
+        """Read /limo/lidar — for CH5."""
+        print(f"[bridge] Listening: {GZ_LIDAR}")
+        for msg_text in self._run_gz_echo(GZ_LIDAR):
+            if not RUNNING:
+                break
+            # TODO: parse LaserScan data and include in CH5 bundle
 
-            self.sequence += 1
-
-        except Exception as e:
-            pass  # silently skip parse errors
-
-    def _extract_float(self, text: str, key: str, default: float) -> float:
-        """Extract a float value after a key in text."""
-        try:
-            idx = text.index(key)
-            rest = text[idx + len(key):].strip()
-            num_str = ""
-            for c in rest:
-                if c in "0123456789.-+e":
-                    num_str += c
-                else:
-                    break
-            return float(num_str) if num_str else default
-        except (ValueError, IndexError):
-            return default
-
-    def _send_cmd_vel(self, linear: float, angular: float):
-        """Send velocity command to Gazebo via `gz topic -p`."""
-        # Gazebo Harmonic uses gz.msgs.Twist
-        msg = f'linear: {{x: {linear}}}, angular: {{z: {angular}}}'
-        try:
-            subprocess.run(
-                ["gz", "topic", "-t", GZ_CMD_VEL, "-m", "gz.msgs.Twist",
-                 "-p", msg],
-                timeout=1.0,
-                capture_output=True,
-            )
-        except subprocess.TimeoutExpired:
-            pass
-        except FileNotFoundError:
-            pass
-
-    def _run_with_bindings(self):
-        """Use gz.transport Python bindings for efficient topic bridging."""
-        import gz.transport
-
-        node = gz.transport.Node()
-
-        # Subscribe to Gazebo topics
-        node.subscribe(GZ_ODOM, self._on_gz_odom)
-        # node.subscribe(GZ_CAMERA, self._on_gz_camera)  # TODO
-        # node.subscribe(GZ_LIDAR, self._on_gz_lidar)    # TODO
-
-        print("Bridge running (gz.transport bindings mode)...")
-
-        # Forward CH7 commands to Gazebo
-        pub = node.advertise(GZ_CMD_VEL, "gz.msgs.Twist")
+    def _cmd_forwarder(self):
+        """Receive CH7 SimControlCommand and send to Gazebo cmd_vel."""
+        print(f"[bridge] Forwarding CH7 → {GZ_CMD_VEL}")
 
         while RUNNING:
             try:
-                topic_bytes, data = self.ch7_sub.recv_multipart()
+                topic_bytes, data = self.ch7.recv_multipart()
 
-                if HAS_PROTO:
-                    cmd = sim_pb2.SimControlCommand()
+                # Parse the SimControlCommand protobuf
+                try:
+                    sys.path.insert(0, "proto/gen_py")
+                    from sim_pb2 import SimControlCommand
+                    cmd = SimControlCommand()
                     cmd.ParseFromString(data)
+                    linear = cmd.linear_velocity
+                    angular = cmd.angular_velocity
+                except Exception:
+                    # Fallback: assume simple format
+                    linear = 0.0
+                    angular = 0.0
 
-                    # Publish to Gazebo
-                    twist = gz.msgs.Twist()
-                    twist.linear.x = cmd.linear_velocity
-                    twist.angular.z = cmd.angular_velocity
-                    pub.publish(twist)
+                # Send to Gazebo
+                msg = f'linear: {{x: {linear}}}, angular: {{z: {angular}}}'
+                subprocess.run(
+                    ["gz", "topic", "-t", GZ_CMD_VEL,
+                     "-m", "gz.msgs.Twist", "-p", msg],
+                    timeout=1.0, capture_output=True,
+                )
 
             except zmq.Again:
-                pass
+                continue
             except Exception as e:
                 if RUNNING:
-                    print(f"CH7 error: {e}")
+                    print(f"[bridge] CH7 error: {e}")
 
-            time.sleep(0.01)
+    def _publish_vehicle_state(self, data):
+        """Publish SimVehicleState on CH6 using proto Python bindings."""
+        try:
+            sys.path.insert(0, "proto/gen_py")
+            from sim_pb2 import SimVehicleState
+            from common_pb2 import Header, Pose2D, Twist2D
 
-    def _on_gz_odom(self, msg):
-        """Callback for Gazebo odometry topic."""
-        if HAS_PROTO:
-            vs = sim_pb2.SimVehicleState()
-            vs.header.timestamp_ns = int(time.time() * 1e9)
-            vs.header.sequence = self.sequence
+            vs = SimVehicleState()
+            vs.header.timestamp_ns = data["timestamp_ns"]
+            vs.header.sequence = data["sequence"]
             vs.header.frame_id = "gz"
-            # Extract pose from gz.msgs.Odometry
-            vs.pose.x = msg.pose.position.x
-            vs.pose.y = msg.pose.position.y
-            # Convert quaternion to yaw
-            q = msg.pose.orientation
-            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-            vs.pose.theta = yaw
-            vs.velocity.linear_x = msg.twist.linear.x
-            vs.velocity.angular_z = msg.twist.angular.z
-            vs.battery_voltage = 12.6
-            vs.drive_mode = 1
+            vs.pose.x = data["pose"]["x"]
+            vs.pose.y = data["pose"]["y"]
+            vs.pose.theta = data["pose"]["theta"]
+            vs.velocity.linear_x = data["velocity"]["linear_x"]
+            vs.velocity.angular_z = data["velocity"]["angular_z"]
+            vs.steering_angle = data["steering_angle"]
+            vs.battery_voltage = data["battery_voltage"]
+            vs.drive_mode = 1  # Ackermann
 
-            data = vs.SerializeToString()
-            self.ch6_pub.send_multipart([b"sim_vehicle_state", data])
-            self.sequence += 1
+            self.ch6.send_multipart([b"sim_vehicle_state", vs.SerializeToString()])
+
+        except ImportError:
+            print("[bridge] WARNING: proto/gen_py not found. Run 'make proto'.")
+        except Exception as e:
+            print(f"[bridge] CH6 publish error: {e}")
+
+    def _extract_nested(self, text, *keys):
+        """Extract a numeric value from protobuf text format given nested keys."""
+        # Simple recursive key search in protobuf text format
+        lines = text.split("\n")
+        depth = 0
+        key_idx = 0
+
+        for line in lines:
+            stripped = line.strip()
+
+            if key_idx < len(keys) - 1:
+                if stripped.startswith(keys[key_idx]) and "{" in stripped:
+                    key_idx += 1
+                    continue
+
+            if key_idx == len(keys) - 1:
+                target = keys[-1]
+                if stripped.startswith(f"{target}:"):
+                    val_str = stripped.split(":", 1)[1].strip()
+                    try:
+                        return float(val_str)
+                    except ValueError:
+                        return None
+
+            if "{" in stripped:
+                depth += 1
+            if "}" in stripped:
+                depth -= 1
+                if depth < key_idx:
+                    key_idx = depth
+
+        return None
 
     def shutdown(self):
-        self.ch5_pub.close()
-        self.ch6_pub.close()
-        self.ch7_sub.close()
+        self.ch5.close()
+        self.ch6.close()
+        self.ch7.close()
         self.ctx.term()
 
 
@@ -290,7 +279,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    bridge = GzZmqBridge()
+    bridge = GazeboBridge()
     try:
         bridge.run()
     finally:

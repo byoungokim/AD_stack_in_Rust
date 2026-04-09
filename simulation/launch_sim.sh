@@ -54,7 +54,14 @@ log "Building Rust binaries..."
 source "$HOME/.cargo/env" 2>/dev/null || true
 cargo build --release 2>&1 | tail -3
 
-# --- 2. Generate Python proto (for bridge) ---
+# --- 2. Python venv + proto ---
+if [[ ! -d ".venv" ]]; then
+    log "Creating Python venv..."
+    python3 -m venv .venv
+    .venv/bin/pip install -q pyzmq protobuf
+fi
+PYTHON=".venv/bin/python3"
+
 if [[ ! -d "proto/gen_py" ]]; then
     log "Generating Python protobuf..."
     make proto
@@ -82,7 +89,7 @@ else
     sleep 3  # Wait for Gazebo to initialize
 
     log "Starting Gazebo↔ZMQ bridge..."
-    python3 "$PROJECT_DIR/simulation/bridge/gz_zmq_bridge.py" &
+    $PYTHON "$PROJECT_DIR/simulation/bridge/gz_zmq_bridge.py" &
     PIDS+=($!)
     sleep 1
 fi
