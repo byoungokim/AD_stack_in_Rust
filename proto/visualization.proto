@@ -1,0 +1,31 @@
+syntax = "proto3";
+package limo;
+
+import "common.proto";
+
+// CH10: Planning → Visualizer
+// Publishes the current planned path for visualization.
+
+message PlannedPath {
+  Header header = 1;
+
+  // Global path from Hybrid A* (sparse waypoints)
+  repeated Pose2D global_path = 2;
+
+  // Local trajectory from DWA/MPC (dense, short horizon)
+  repeated Pose2D local_trajectory = 3;
+
+  // Current goal from scenario
+  Pose2D current_goal = 4;
+  string goal_label = 5;
+
+  // All scenario waypoints (for displaying the full route)
+  repeated Pose2D scenario_waypoints = 6;
+  repeated string waypoint_labels = 7;
+  uint32 current_waypoint_index = 8;
+
+  // Robot state
+  Pose2D robot_pose = 9;
+  float robot_speed = 10;
+  string behavior_state = 11;  // "Idle", "Following", etc.
+}

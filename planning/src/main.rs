@@ -99,9 +99,12 @@ fn main() -> Result<()> {
 
     // CH9 publisher: ScenarioStatus feedback
     let mut ch9_pub = Publisher::bind(
-        &zmq_ctx,
-        Channel::ScenarioStatus.bind_endpoint(),
-        Channel::ScenarioStatus.topic(),
+        &zmq_ctx, Channel::ScenarioStatus.bind_endpoint(), Channel::ScenarioStatus.topic(),
+    )?;
+
+    // CH10 publisher: PlannedPath for visualization
+    let mut ch10_pub = Publisher::bind(
+        &zmq_ctx, Channel::PlannedPath.bind_endpoint(), Channel::PlannedPath.topic(),
     )?;
 
     info!(
@@ -338,6 +341,35 @@ fn main() -> Result<()> {
                     .map(|wp| wp.label.clone()).unwrap_or_default(),
             };
             let _ = ch9_pub.publish(&status);
+        }
+
+        // --- 11. Publish PlannedPath on CH10 (for visualization) ---
+        {
+            let planned_path = limo_proto::PlannedPath {
+                header: Some(limo_proto::Header {
+                    timestamp_ns: now_ns(), sequence: cycle as u32, frame_id: "world".into(),
+                }),
+                global_path: global_path.iter().map(|wp| limo_proto::Pose2D {
+                    x: wp.x, y: wp.y, theta: wp.theta,
+                }).collect(),
+                local_trajectory: vec![], // TODO: from local planner
+                current_goal: if scenario_active && current_wp_index < scenario_waypoints.len() {
+                    scenario_waypoints[current_wp_index].goal_pose.clone()
+                } else { None },
+                goal_label: scenario_waypoints.get(current_wp_index)
+                    .map(|wp| wp.label.clone()).unwrap_or_default(),
+                scenario_waypoints: scenario_waypoints.iter()
+                    .filter_map(|wp| wp.goal_pose.clone()).collect(),
+                waypoint_labels: scenario_waypoints.iter()
+                    .map(|wp| wp.label.clone()).collect(),
+                current_waypoint_index: current_wp_index as u32,
+                robot_pose: Some(limo_proto::Pose2D {
+                    x: robot_state.x, y: robot_state.y, theta: robot_state.theta,
+                }),
+                robot_speed: arb_out.command.linear_x as f32,
+                behavior_state: format!("{:?}", behavior_out.state),
+            };
+            let _ = ch10_pub.publish(&planned_path);
         }
 
         // --- Logging ---

@@ -32,6 +32,10 @@ pub enum Channel {
     ScenarioCommand,
     /// CH9: ScenarioStatus (Planning → Scenario Manager)
     ScenarioStatus,
+
+    // --- Visualization channel ---
+    /// CH10: PlannedPath (Planning → Visualizer)
+    PlannedPath,
 }
 
 impl Channel {
@@ -48,6 +52,7 @@ impl Channel {
             Channel::SimControl => "tcp://*:5562",
             Channel::ScenarioCommand => "tcp://*:5580",
             Channel::ScenarioStatus => "tcp://*:5581",
+            Channel::PlannedPath => "tcp://*:5590",
         }
     }
 
@@ -64,6 +69,7 @@ impl Channel {
             Channel::SimControl => "tcp://localhost:5562",
             Channel::ScenarioCommand => "tcp://localhost:5580",
             Channel::ScenarioStatus => "tcp://localhost:5581",
+            Channel::PlannedPath => "tcp://localhost:5590",
         }
     }
 
@@ -80,6 +86,7 @@ impl Channel {
             Channel::SimControl => "sim_control",
             Channel::ScenarioCommand => "scenario_cmd",
             Channel::ScenarioStatus => "scenario_status",
+            Channel::PlannedPath => "planned_path",
         }
     }
 
