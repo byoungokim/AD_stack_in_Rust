@@ -68,9 +68,9 @@ gz sim -g &
 PIDS+=($!)
 sleep 2
 
-# === 3. Gazebo↔ZMQ Bridge ===
-log "Starting Gazebo↔ZMQ bridge..."
-$PYTHON "$PROJECT_DIR/simulation/bridge/gz_zmq_bridge.py" &
+# === 3. Gazebo↔ZMQ Bridge (uses system Python for gz.transport13) ===
+log "Starting Gazebo↔ZMQ bridge (native gz.transport13)..."
+python3 "$PROJECT_DIR/simulation/bridge/gz_zmq_bridge.py" &
 PIDS+=($!)
 sleep 1
 
