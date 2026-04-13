@@ -192,9 +192,47 @@ fn main() -> Result<()> {
             }
         }
 
-        // --- 4. Build robot state ---
+        // --- 4. Build robot state and update grid ---
         let robot_state = build_robot_state(&world_state, &vehicle_state);
         let obstacles = extract_obstacles(&world_state);
+
+        // Populate occupancy grid from detected obstacles
+        // Clear grid each cycle and re-populate (rolling local map)
+        grid.data.fill(0);
+        for obs in &obstacles {
+            // Mark obstacle cells (inflate by robot radius for safety)
+            let inflate = 0.3; // meters
+            let steps = (inflate / grid.resolution) as i32;
+            for dx in -steps..=steps {
+                for dy in -steps..=steps {
+                    grid.set_occupied(
+                        obs.x + dx as f64 * grid.resolution,
+                        obs.y + dy as f64 * grid.resolution,
+                    );
+                }
+            }
+        }
+
+        // Also populate from WorldState local_map if available
+        if let Some(ws) = &world_state {
+            if let Some(map) = &ws.local_map {
+                if map.width > 0 && map.height > 0 {
+                    let origin = map.origin.as_ref();
+                    let ox = origin.map(|o| o.x).unwrap_or(0.0);
+                    let oy = origin.map(|o| o.y).unwrap_or(0.0);
+                    for gy in 0..map.height {
+                        for gx in 0..map.width {
+                            let idx = (gy * map.width + gx) as usize;
+                            if idx < map.data.len() && map.data[idx] >= 50 {
+                                let wx = ox + gx as f64 * map.resolution as f64;
+                                let wy = oy + gy as f64 * map.resolution as f64;
+                                grid.set_occupied(wx, wy);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // --- 5. Behavior planner ---
         let behavior_input = BehaviorInput {

@@ -54,6 +54,13 @@ pub trait SensorSource: Send {
 
     /// Name of this source for logging.
     fn name(&self) -> &str;
+
+    /// Number of errors encountered since start. Consumers can monitor
+    /// this to detect hardware faults (increasing count = degraded).
+    fn error_count(&self) -> u64 { 0 }
+
+    /// Whether the source is healthy (receiving data without errors).
+    fn is_healthy(&self) -> bool { true }
 }
 
 /// Vehicle controller trait.
@@ -76,4 +83,10 @@ pub trait VehicleController: Send {
 
     /// Name of this controller for logging.
     fn name(&self) -> &str;
+
+    /// Number of send/recv errors since start.
+    fn error_count(&self) -> u64 { 0 }
+
+    /// Whether the controller is healthy (hardware responsive).
+    fn is_healthy(&self) -> bool { true }
 }

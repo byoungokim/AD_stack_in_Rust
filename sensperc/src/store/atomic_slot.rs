@@ -2,6 +2,7 @@
 ///
 /// Producer atomically swaps in a new value; consumers always read the latest.
 /// Uses Arc + RwLock for shared immutable snapshots.
+/// All lock acquisitions handle poisoning gracefully (no panics).
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -26,20 +27,24 @@ impl<T: Clone> AtomicSlot<T> {
 
     /// Store a new value (producer side).
     pub fn store(&self, value: T) {
-        let mut inner = self.inner.write().unwrap();
-        inner.value = Some(value);
-        inner.updated_at = Some(Instant::now());
+        if let Ok(mut inner) = self.inner.write() {
+            inner.value = Some(value);
+            inner.updated_at = Some(Instant::now());
+        }
+        // If lock is poisoned, silently skip (degraded but no panic)
     }
 
-    /// Load the latest value (consumer side). Returns None if never written.
+    /// Load the latest value (consumer side). Returns None if never written or lock poisoned.
     pub fn load(&self) -> Option<T> {
-        let inner = self.inner.read().unwrap();
-        inner.value.clone()
+        self.inner.read().ok()?.value.clone()
     }
 
-    /// Load value with its age in seconds. Returns (None, f64::INFINITY) if unset.
+    /// Load value with its age in seconds. Returns (None, f64::INFINITY) if unset or lock poisoned.
     pub fn load_with_age(&self) -> (Option<T>, f64) {
-        let inner = self.inner.read().unwrap();
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(_) => return (None, f64::INFINITY),
+        };
         match (&inner.value, inner.updated_at) {
             (Some(val), Some(ts)) => (Some(val.clone()), ts.elapsed().as_secs_f64()),
             _ => (None, f64::INFINITY),
@@ -48,12 +53,15 @@ impl<T: Clone> AtomicSlot<T> {
 
     /// Check if a value has been stored.
     pub fn has_value(&self) -> bool {
-        self.inner.read().unwrap().value.is_some()
+        self.inner.read().ok().map_or(false, |g| g.value.is_some())
     }
 
-    /// Age of the stored value in seconds. Returns INFINITY if unset.
+    /// Age of the stored value in seconds. Returns INFINITY if unset or lock poisoned.
     pub fn age_secs(&self) -> f64 {
-        let inner = self.inner.read().unwrap();
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(_) => return f64::INFINITY,
+        };
         match inner.updated_at {
             Some(ts) => ts.elapsed().as_secs_f64(),
             None => f64::INFINITY,

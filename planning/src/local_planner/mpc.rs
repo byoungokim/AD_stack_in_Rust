@@ -184,8 +184,18 @@ impl SimpleMpc {
                 total_cost += self.config.weight_heading * heading_err;
             }
 
-            // Velocity cost (track desired speed)
-            let vel_err = (ctrl.velocity - refs.get(i).map_or(0.0, |_| ctrl.velocity)).powi(2);
+            // Velocity cost (penalize deviation from reference speed)
+            let ref_speed = refs.get(i).map_or(0.0, |r| {
+                // Estimate desired speed from spacing between reference points
+                if i > 0 {
+                    let dx = r.x - refs.get(i - 1).map_or(r.x, |prev| prev.x);
+                    let dy = r.y - refs.get(i - 1).map_or(r.y, |prev| prev.y);
+                    (dx * dx + dy * dy).sqrt() / self.config.dt
+                } else {
+                    self.config.max_speed * 0.5 // default reference speed
+                }
+            });
+            let vel_err = (ctrl.velocity - ref_speed).powi(2);
             total_cost += self.config.weight_velocity * vel_err;
 
             // Steering rate cost (smooth steering)

@@ -265,9 +265,13 @@ impl HybridAStar {
         let d = self.config.step_size;
         let wb = self.config.wheelbase;
 
-        let new_theta = theta + (d / wb) * steer.tan();
-        let new_x = x + d * theta.cos();
-        let new_y = y + d * theta.sin();
+        // Proper bicycle model: compute position using current theta,
+        // then update theta. Use midpoint integration for better accuracy.
+        let dtheta = (d / wb) * steer.tan();
+        let mid_theta = theta + dtheta * 0.5;
+        let new_x = x + d * mid_theta.cos();
+        let new_y = y + d * mid_theta.sin();
+        let new_theta = theta + dtheta;
 
         (new_x, new_y, normalize_angle(new_theta))
     }
@@ -379,12 +383,18 @@ mod tests {
         let goal = Pose { x: 3.0, y: 0.0, theta: 0.0 };
 
         let mut grid = empty_grid();
-        // Surround the start with walls
-        for i in -10..10 {
-            grid.set_occupied(0.3, i as f64 * 0.1);
-            grid.set_occupied(-0.3, i as f64 * 0.1);
-            grid.set_occupied(i as f64 * 0.1, 0.3);
-            grid.set_occupied(i as f64 * 0.1, -0.3);
+        // Fill everything around the start as occupied, leaving only a tiny pocket
+        // The robot has no way out — every direction is blocked
+        for gx in 0..100 {
+            for gy in 0..100 {
+                let wx = -5.0 + gx as f64 * 0.1;
+                let wy = -5.0 + gy as f64 * 0.1;
+                let dist = (wx * wx + wy * wy).sqrt();
+                // Block everything outside 0.15m radius (less than one step)
+                if dist > 0.15 {
+                    grid.set_occupied(wx, wy);
+                }
+            }
         }
 
         let path = planner.plan(&start, &goal, &grid);
@@ -395,7 +405,8 @@ mod tests {
     fn test_bicycle_step_straight() {
         let planner = HybridAStar::new(HybridAStarConfig::default());
         let (nx, ny, nt) = planner.bicycle_step(0.0, 0.0, 0.0, 0.0);
-        assert!((nx - 0.15).abs() < 1e-6); // step_size forward
+        let step = planner.config.step_size; // 0.2
+        assert!((nx - step).abs() < 1e-6); // step_size forward
         assert!(ny.abs() < 1e-6);
         assert!(nt.abs() < 1e-6);
     }

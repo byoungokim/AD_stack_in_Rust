@@ -244,6 +244,43 @@ fn aggregator_loop(
         let velocity = store.latest_velocity.load().unwrap_or_default();
         let loc_confidence = store.localization_confidence.load().unwrap_or(0.0);
 
+        // --- Simple LiDAR-based obstacle detection ---
+        // Convert nearby LiDAR points to obstacle detections in world frame
+        let detections = if let Some(scan) = &latest_lidar {
+            let mut dets = Vec::new();
+            let num_points = scan.ranges.len();
+            if num_points > 0 {
+                let angle_inc = if scan.angle_increment > 0.0 {
+                    scan.angle_increment
+                } else if num_points > 1 {
+                    (scan.angle_max - scan.angle_min) / (num_points - 1) as f32
+                } else { 0.0 };
+
+                for (i, &range) in scan.ranges.iter().enumerate() {
+                    // Only report close obstacles (< 3m)
+                    if range >= scan.range_min && range <= 3.0 {
+                        let angle = scan.angle_min + i as f32 * angle_inc;
+                        // Transform to world frame
+                        let wx = pose.x + range as f64 * (pose.theta + angle as f64).cos();
+                        let wy = pose.y + range as f64 * (pose.theta + angle as f64).sin();
+                        dets.push(limo_proto::Detection {
+                            object_class: limo_proto::ObjectClass::ObjectObstacle as i32,
+                            confidence: 0.8,
+                            bbox_image: None,
+                            position_world: Some(limo_proto::Point2D { x: wx, y: wy }),
+                            distance: range as f32,
+                        });
+                    }
+                }
+            }
+            // Downsample to max 50 detections to limit bandwidth
+            if dets.len() > 50 {
+                let step = dets.len() / 50;
+                dets = dets.into_iter().step_by(step).collect();
+            }
+            Some(limo_proto::DetectionArray { header: None, detections: dets })
+        } else { None };
+
         // Compose and publish WorldState on CH1
         let world_state = limo_proto::WorldState {
             header: Some(limo_proto::Header {
@@ -257,16 +294,9 @@ fn aggregator_loop(
                 linear_x: velocity.linear_x, linear_y: velocity.linear_y,
                 angular_z: velocity.angular_z,
             }),
-            detections: if latest_camera.is_some() {
-                Some(limo_proto::DetectionArray { header: None, detections: vec![] })
-            } else { None },
+            detections,
             lanes: None,
-            local_map: if latest_lidar.is_some() {
-                Some(limo_proto::OccupancyGrid {
-                    header: None, width: 0, height: 0, resolution: 0.05,
-                    origin: None, data: vec![],
-                })
-            } else { None },
+            local_map: None, // TODO: build occupancy grid from LiDAR in SLAM agent
             localization_confidence: loc_confidence,
         };
 

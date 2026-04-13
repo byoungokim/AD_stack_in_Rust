@@ -174,6 +174,9 @@ impl TrajectoryTracker {
     fn stanley_control(&mut self, pose: &OdomPose) -> Option<MotorCommand> {
         self.update_nearest(pose);
 
+        if self.nearest_idx >= self.trajectory.len() {
+            return None;
+        }
         let nearest = &self.trajectory[self.nearest_idx];
         let target_speed = nearest.speed;
 
