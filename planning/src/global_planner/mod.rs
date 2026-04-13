@@ -32,9 +32,9 @@ fn default_xy_resolution() -> f64 { 0.1 }
 fn default_theta_resolution() -> f64 { 0.1745 } // ~10 degrees
 fn default_wheelbase() -> f64 { 0.2 }
 fn default_max_steering() -> f64 { 0.48 }
-fn default_step_size() -> f64 { 0.15 }
+fn default_step_size() -> f64 { 0.2 }
 fn default_num_steer() -> usize { 5 }
-fn default_max_iterations() -> usize { 50_000 }
+fn default_max_iterations() -> usize { 100_000 }
 
 impl Default for HybridAStarConfig {
     fn default() -> Self {

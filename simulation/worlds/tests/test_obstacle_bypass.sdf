@@ -1,0 +1,98 @@
+<?xml version="1.0" ?>
+<!-- Test 2: Obstacle bypass
+     Robot must drive from start to goal, but a large obstacle
+     blocks the direct path. Robot must plan around it.
+
+     Layout:
+       Robot starts at (0, 0) heading east
+       Goal: (6, 0)
+       Obstacle: big wall at x=3, from y=-0.8 to y=0.8 (blocks direct path)
+       Side walls at y=±2 prevent going too wide
+-->
+<sdf version="1.9">
+  <world name="test_obstacle_bypass">
+
+    <physics name="fast" type="ode">
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>2.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry></collision>
+        <visual name="v"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Blocking obstacle (red wall across the direct path) -->
+    <model name="blocking_wall">
+      <static>true</static>
+      <pose>3.0 0.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.3 1.8 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.3 1.8 0.5</size></box></geometry>
+          <material><ambient>0.9 0.1 0.1 1</ambient><diffuse>1.0 0.2 0.2 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Side walls to constrain the bypass path -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>3.0 3.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>10 0.15 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>10 0.15 0.5</size></box></geometry>
+          <material><ambient>0.4 0.4 0.4 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_south">
+      <static>true</static>
+      <pose>3.0 -3.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>10 0.15 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>10 0.15 0.5</size></box></geometry>
+          <material><ambient>0.4 0.4 0.4 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Goal marker (green) -->
+    <model name="goal_marker">
+      <static>true</static>
+      <pose>6.0 0.0 0.5 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><sphere><radius>0.15</radius></sphere></geometry>
+          <material><ambient>0.0 1.0 0.0 1</ambient><diffuse>0.0 1.0 0.0 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Limo Pro robot -->
+    <include>
+      <uri>model://limo_pro</uri>
+      <name>limo</name>
+      <pose>0 0 0.055 0 0 0</pose>
+    </include>
+
+  </world>
+</sdf>

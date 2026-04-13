@@ -1,0 +1,142 @@
+<?xml version="1.0" ?>
+<!-- Test 1: Intersection crossing
+     Robot drives straight (east) through an intersection.
+     A crossing robot enters from the south (right side of our robot)
+     and crosses northward. Our robot must avoid collision.
+
+     Layout:
+       Road east-west: y=0, from x=-5 to x=10
+       Road north-south: x=5, from y=-8 to y=8
+       Robot starts at (-3, 0) heading east
+       Goal: (10, 0) — straight through intersection
+       Cross-traffic: moving box at x=5, starting y=-6, moving north at 0.5m/s
+-->
+<sdf version="1.9">
+  <world name="test_intersection">
+
+    <physics name="fast" type="ode">
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>2.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground -->
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry></collision>
+        <visual name="v"><geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- East-west road boundaries -->
+    <model name="road_ew_north">
+      <static>true</static>
+      <pose>2.5 1.5 0.15 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>15 0.1 0.3</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient></material>
+        </visual>
+        <collision name="c"><geometry><box><size>15 0.1 0.3</size></box></geometry></collision>
+      </link>
+    </model>
+    <model name="road_ew_south">
+      <static>true</static>
+      <pose>2.5 -1.5 0.15 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>15 0.1 0.3</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient></material>
+        </visual>
+        <collision name="c"><geometry><box><size>15 0.1 0.3</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <!-- North-south road boundaries (with gap at intersection) -->
+    <model name="road_ns_west_south">
+      <static>true</static>
+      <pose>3.5 -4.5 0.15 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>0.1 5 0.3</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient></material>
+        </visual>
+        <collision name="c"><geometry><box><size>0.1 5 0.3</size></box></geometry></collision>
+      </link>
+    </model>
+    <model name="road_ns_east_south">
+      <static>true</static>
+      <pose>6.5 -4.5 0.15 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>0.1 5 0.3</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient></material>
+        </visual>
+        <collision name="c"><geometry><box><size>0.1 5 0.3</size></box></geometry></collision>
+      </link>
+    </model>
+    <model name="road_ns_west_north">
+      <static>true</static>
+      <pose>3.5 4.5 0.15 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>0.1 5 0.3</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient></material>
+        </visual>
+        <collision name="c"><geometry><box><size>0.1 5 0.3</size></box></geometry></collision>
+      </link>
+    </model>
+    <model name="road_ns_east_north">
+      <static>true</static>
+      <pose>6.5 4.5 0.15 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>0.1 5 0.3</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient></material>
+        </visual>
+        <collision name="c"><geometry><box><size>0.1 5 0.3</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <!-- Cross-traffic robot (blue box moving north through intersection) -->
+    <model name="cross_traffic">
+      <pose>5.0 -6.0 0.15 0 0 0</pose>
+      <link name="body">
+        <inertial><mass>2.0</mass>
+          <inertia><ixx>0.02</ixx><iyy>0.02</iyy><izz>0.02</izz></inertia>
+        </inertial>
+        <visual name="v"><geometry><box><size>0.4 0.6 0.3</size></box></geometry>
+          <material><ambient>0.0 0.3 0.8 1</ambient><diffuse>0.0 0.4 1.0 1</diffuse></material>
+        </visual>
+        <collision name="c"><geometry><box><size>0.4 0.6 0.3</size></box></geometry></collision>
+      </link>
+      <!-- Move northward at 0.5 m/s using a joint + velocity controller -->
+      <plugin filename="gz-sim-triggered-publisher-system"
+              name="gz::sim::systems::TriggeredPublisher">
+        <input type="gz.msgs.Clock" topic="/clock"/>
+        <output type="gz.msgs.Twist" topic="/cross_traffic/cmd_vel">
+          linear: {x: 0.0, y: 0.5} angular: {z: 0.0}
+        </output>
+      </plugin>
+    </model>
+
+    <!-- Limo Pro robot -->
+    <include>
+      <uri>model://limo_pro</uri>
+      <name>limo</name>
+      <pose>-3 0 0.055 0 0 0</pose>
+    </include>
+
+  </world>
+</sdf>

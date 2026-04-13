@@ -1,0 +1,92 @@
+<?xml version="1.0" ?>
+<!-- Test 3: Destination accuracy
+     Robot must navigate from start to a specific goal point
+     and stop within 0.5m of the target.
+
+     Layout:
+       Robot starts at (0, 0) heading east
+       Goal: (4, 3) with heading north — requires turning
+       Open area with minimal obstacles (just boundary walls)
+-->
+<sdf version="1.9">
+  <world name="test_destination_accuracy">
+
+    <physics name="fast" type="ode">
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>2.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry></collision>
+        <visual name="v"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Boundary walls -->
+    <model name="wall_n"><static>true</static><pose>2 7 0.25 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>14 0.15 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>14 0.15 0.5</size></box></geometry>
+          <material><ambient>0.4 0.4 0.4 1</ambient></material></visual></link></model>
+    <model name="wall_s"><static>true</static><pose>2 -3 0.25 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>14 0.15 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>14 0.15 0.5</size></box></geometry>
+          <material><ambient>0.4 0.4 0.4 1</ambient></material></visual></link></model>
+    <model name="wall_e"><static>true</static><pose>9 2 0.25 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.15 10 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 10 0.5</size></box></geometry>
+          <material><ambient>0.4 0.4 0.4 1</ambient></material></visual></link></model>
+    <model name="wall_w"><static>true</static><pose>-5 2 0.25 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.15 10 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 10 0.5</size></box></geometry>
+          <material><ambient>0.4 0.4 0.4 1</ambient></material></visual></link></model>
+
+    <!-- Goal marker (green sphere at target) -->
+    <model name="goal_marker">
+      <static>true</static>
+      <pose>4.0 3.0 0.5 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><sphere><radius>0.2</radius></sphere></geometry>
+          <material><ambient>0.0 1.0 0.0 1</ambient><diffuse>0.0 1.0 0.0 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Accuracy zone marker (transparent cylinder showing 0.5m radius) -->
+    <model name="accuracy_zone">
+      <static>true</static>
+      <pose>4.0 3.0 0.01 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><cylinder><radius>0.5</radius><length>0.02</length></cylinder></geometry>
+          <material><ambient>0.0 1.0 0.0 0.3</ambient><diffuse>0.0 1.0 0.0 0.3</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Limo Pro robot -->
+    <include>
+      <uri>model://limo_pro</uri>
+      <name>limo</name>
+      <pose>0 0 0.055 0 0 0</pose>
+    </include>
+
+  </world>
+</sdf>

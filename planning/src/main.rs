@@ -139,7 +139,8 @@ fn main() -> Result<()> {
     let mut cycle: u64 = 0;
 
     // Default empty grid (will be updated from WorldState)
-    let mut grid = OccupancyGrid::new(200, 200, 0.05, -5.0, -5.0);
+    // 400x400 at 0.1m = 40m×40m, covers from -20 to +20
+    let mut grid = OccupancyGrid::new(400, 400, 0.1, -20.0, -20.0);
 
     info!("Planning process running — entering main loop");
 
