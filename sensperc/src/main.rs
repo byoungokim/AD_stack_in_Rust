@@ -7,6 +7,7 @@
 /// Publishes aggregated WorldState on CH1 (ZMQ PUB tcp:5551).
 /// Subscribes to VehicleState on CH3 (for sensor fusion / EKF).
 mod config;
+mod perception;
 mod slam;
 mod store;
 
@@ -93,6 +94,15 @@ fn main() -> Result<()> {
             slam::slam_loop(&slam_store, &SHUTDOWN);
         })?;
 
+    // Start perception thread (YOLO object detection from camera)
+    let perc_store = Arc::clone(&store);
+    let model_path = "models/yolov8n.onnx".to_string();
+    let perc_handle = thread::Builder::new()
+        .name("Perception".into())
+        .spawn(move || {
+            perception::perception_loop(&perc_store, &SHUTDOWN, &model_path);
+        })?;
+
     // Start aggregator loop (publishes WorldState on CH1, subscribes CH3)
     let agg_store = Arc::clone(&store);
     let agg_config = config.aggregator.clone();
@@ -125,6 +135,7 @@ fn main() -> Result<()> {
     info!("Shutting down SensPerc...");
     let _ = reader_handle.join();
     let _ = slam_handle.join();
+    let _ = perc_handle.join();
     let _ = agg_handle.join();
     heartbeat.stop();
     info!("=== SensPerc Process Stopped ===");
@@ -290,6 +301,39 @@ fn aggregator_loop(
             }
             Some(limo_proto::DetectionArray { header: None, detections: dets })
         } else { None };
+
+        // Merge camera detections (from YOLO) if available
+        let detections = if let Some(cam_dets) = store.latest_detections.load() {
+            let mut all_dets = detections.map_or(vec![], |d| d.detections);
+            for cd in &cam_dets {
+                // Camera detections have bounding boxes but no world position
+                // Estimate distance from bbox size (rough heuristic)
+                let bbox_height = cd.y2 - cd.y1;
+                let est_distance = if bbox_height > 10.0 {
+                    (480.0 / bbox_height) * 0.5 // rough depth from bbox
+                } else { 5.0 };
+
+                all_dets.push(limo_proto::Detection {
+                    object_class: cd.class_id as i32,
+                    confidence: cd.confidence,
+                    bbox_image: Some(limo_proto::BoundingBox2D {
+                        x_center: ((cd.x1 + cd.x2) / 2.0) as f64,
+                        y_center: ((cd.y1 + cd.y2) / 2.0) as f64,
+                        width: (cd.x2 - cd.x1) as f64,
+                        height: (cd.y2 - cd.y1) as f64,
+                        angle: 0.0,
+                    }),
+                    position_world: Some(limo_proto::Point2D {
+                        x: pose.x + est_distance as f64 * pose.theta.cos(),
+                        y: pose.y + est_distance as f64 * pose.theta.sin(),
+                    }),
+                    distance: est_distance,
+                });
+            }
+            Some(limo_proto::DetectionArray { header: None, detections: all_dets })
+        } else {
+            detections
+        };
 
         // Compose and publish WorldState on CH1
         let world_state = limo_proto::WorldState {

@@ -39,3 +39,15 @@ ctrlc = "3.4"
 
 # ZMQ (for aggregator CH1/CH3)
 zmq = "0.10"
+
+# ONNX Runtime for object detection (optional, enable with --features onnx)
+[dependencies.ort]
+version = "2.0.0-rc.12"
+optional = true
+
+[dependencies.ndarray]
+version = "0.16"
+optional = true
+
+[features]
+onnx = ["ort", "ndarray"]

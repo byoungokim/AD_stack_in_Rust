@@ -11,6 +11,9 @@ enum ObjectClass {
   OBJECT_CONE = 4;
   OBJECT_SIGN = 5;
   OBJECT_OBSTACLE = 6;
+  OBJECT_STOP_SIGN = 7;
+  OBJECT_YIELD_SIGN = 8;
+  OBJECT_SPEED_LIMIT = 9;
 }
 
 message Detection {

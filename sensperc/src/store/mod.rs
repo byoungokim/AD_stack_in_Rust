@@ -31,6 +31,9 @@ pub struct SensorStore {
     pub latest_velocity: AtomicSlot<Twist2D>,
     pub localization_confidence: AtomicSlot<f32>,
 
+    // --- Perception output ---
+    pub latest_detections: AtomicSlot<Vec<crate::perception::detector::CameraDetection>>,
+
     // --- SLAM output ---
     pub slam_local_map: AtomicSlot<SlamOccupancyGrid>,
 
@@ -50,6 +53,7 @@ impl SensorStore {
             latest_pose: AtomicSlot::new(),
             latest_velocity: AtomicSlot::new(),
             localization_confidence: AtomicSlot::new(),
+            latest_detections: AtomicSlot::new(),
             slam_local_map: AtomicSlot::new(),
             frame_count: AtomicU64::new(0),
             scan_count: AtomicU64::new(0),
