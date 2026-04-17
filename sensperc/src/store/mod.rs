@@ -31,6 +31,9 @@ pub struct SensorStore {
     pub latest_velocity: AtomicSlot<Twist2D>,
     pub localization_confidence: AtomicSlot<f32>,
 
+    // --- SLAM output ---
+    pub slam_local_map: AtomicSlot<SlamOccupancyGrid>,
+
     // --- Counters for monitoring ---
     pub frame_count: AtomicU64,
     pub scan_count: AtomicU64,
@@ -47,6 +50,7 @@ impl SensorStore {
             latest_pose: AtomicSlot::new(),
             latest_velocity: AtomicSlot::new(),
             localization_confidence: AtomicSlot::new(),
+            slam_local_map: AtomicSlot::new(),
             frame_count: AtomicU64::new(0),
             scan_count: AtomicU64::new(0),
             imu_count: AtomicU64::new(0),

@@ -7,6 +7,7 @@
 /// Publishes aggregated WorldState on CH1 (ZMQ PUB tcp:5551).
 /// Subscribes to VehicleState on CH3 (for sensor fusion / EKF).
 mod config;
+mod slam;
 mod store;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -84,6 +85,14 @@ fn main() -> Result<()> {
             sensor_reader_loop(source, &reader_store);
         })?;
 
+    // Start SLAM thread (feature-based scan matching + occupancy grid)
+    let slam_store = Arc::clone(&store);
+    let slam_handle = thread::Builder::new()
+        .name("SlamFrontend".into())
+        .spawn(move || {
+            slam::slam_loop(&slam_store, &SHUTDOWN);
+        })?;
+
     // Start aggregator loop (publishes WorldState on CH1, subscribes CH3)
     let agg_store = Arc::clone(&store);
     let agg_config = config.aggregator.clone();
@@ -115,6 +124,7 @@ fn main() -> Result<()> {
     // Graceful shutdown
     info!("Shutting down SensPerc...");
     let _ = reader_handle.join();
+    let _ = slam_handle.join();
     let _ = agg_handle.join();
     heartbeat.stop();
     info!("=== SensPerc Process Stopped ===");
@@ -296,7 +306,14 @@ fn aggregator_loop(
             }),
             detections,
             lanes: None,
-            local_map: None, // TODO: build occupancy grid from LiDAR in SLAM agent
+            local_map: store.slam_local_map.load().map(|m| limo_proto::OccupancyGrid {
+                header: None,
+                width: m.width as u32,
+                height: m.height as u32,
+                resolution: m.resolution as f32,
+                origin: Some(limo_proto::Pose2D { x: m.origin_x, y: m.origin_y, theta: 0.0 }),
+                data: m.data,
+            }),
             localization_confidence: loc_confidence,
         };
 
