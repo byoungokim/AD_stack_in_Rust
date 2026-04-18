@@ -62,8 +62,20 @@ fn main() -> Result<()> {
 
     // --- Select sensor source via HAL ---
     let mut source: Box<dyn SensorSource> = if sim_mode {
-        info!("Platform: SimZmq (subscribing CH5)");
-        Box::new(SimZmqSensorSource::new())
+        if config.sim_faults.is_active() {
+            info!(
+                "Platform: SimZmq (CH5) + fault injection (cam={:.2} lidar={:.2} imu={:.2} pose={:.2} vel={:.2} seed={})",
+                config.sim_faults.camera_drop_rate,
+                config.sim_faults.lidar_drop_rate,
+                config.sim_faults.imu_drop_rate,
+                config.sim_faults.pose_drop_rate,
+                config.sim_faults.velocity_drop_rate,
+                config.sim_faults.seed,
+            );
+        } else {
+            info!("Platform: SimZmq (subscribing CH5)");
+        }
+        Box::new(SimZmqSensorSource::with_faults(config.sim_faults.clone()))
     } else if dummy_mode {
         info!("Platform: Dummy (synthetic data)");
         Box::new(DummySensorSource::new())

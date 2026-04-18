@@ -7,6 +7,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use anyhow::Result;
+use serde::Deserialize;
 use tracing::info;
 
 use limo_transport::{Channel, Publisher, Subscriber};
@@ -34,7 +35,8 @@ impl Default for SimAckermannConfig {
 
 /// Per-sensor drop rates in [0.0, 1.0]. A rate of 0 disables dropping.
 /// Use `seed` to make drops reproducible across test runs.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct SimFaultConfig {
     pub camera_drop_rate: f32,
     pub lidar_drop_rate: f32,
@@ -42,6 +44,17 @@ pub struct SimFaultConfig {
     pub pose_drop_rate: f32,
     pub velocity_drop_rate: f32,
     pub seed: u64,
+}
+
+impl SimFaultConfig {
+    /// True if any drop rate is non-zero (for startup logging).
+    pub fn is_active(&self) -> bool {
+        self.camera_drop_rate > 0.0
+            || self.lidar_drop_rate > 0.0
+            || self.imu_drop_rate > 0.0
+            || self.pose_drop_rate > 0.0
+            || self.velocity_drop_rate > 0.0
+    }
 }
 
 // xorshift64 PRNG. Cell so `should_drop` can take &self.

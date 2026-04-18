@@ -51,3 +51,13 @@ sensor_fusion:
 
 aggregator:
   rate_hz: 10
+
+# Sim-only fault injection. Drop rates in [0.0, 1.0]; 0 = no drops.
+# Seed fixes the PRNG so runs are reproducible.
+# sim_faults:
+#   camera_drop_rate: 0.1
+#   lidar_drop_rate: 0.0
+#   imu_drop_rate: 0.05
+#   pose_drop_rate: 0.0
+#   velocity_drop_rate: 0.0
+#   seed: 42
