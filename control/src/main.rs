@@ -25,9 +25,9 @@ use kinematics::KinematicsEngine;
 use tracker::TrajectoryTracker;
 use watchdog::Watchdog;
 
-use limo_hal::{ChassisFeedback, MotorCommand, VehicleController};
+use limo_hal::{MotorCommand, VehicleController};
 use limo_hal::limo_hw::{LimoHwVehicleController, LimoHwControlConfig};
-use limo_hal::sim_zmq::SimZmqVehicleController;
+use limo_hal::sim_zmq::{SimAckermannConfig, SimZmqVehicleController};
 use limo_hal::dummy::DummyVehicleController;
 use limo_transport::{Channel, HeartbeatManager, Publisher, Subscriber};
 
@@ -78,7 +78,10 @@ fn main() -> Result<()> {
     // --- Select vehicle controller via HAL ---
     let mut controller: Box<dyn VehicleController> = if sim_mode {
         info!("Platform: SimZmq (CH6/CH7)");
-        Box::new(SimZmqVehicleController::new())
+        Box::new(SimZmqVehicleController::with_kinematics(SimAckermannConfig {
+            wheelbase: config.kinematics.wheelbase,
+            max_steering_angle: config.kinematics.max_steering_angle,
+        }))
     } else if dummy_mode {
         info!("Platform: Dummy (simulated kinematics)");
         Box::new(DummyVehicleController::new())
@@ -93,7 +96,7 @@ fn main() -> Result<()> {
     // Initialize components
     let estop_active = Arc::new(AtomicBool::new(false));
     let mut kinematics = KinematicsEngine::new(config.kinematics.clone());
-    let mut tracker = TrajectoryTracker::new(
+    let _tracker = TrajectoryTracker::new(
         config.tracker.clone(), config.kinematics.wheelbase,
     );
     let mut watchdog_monitor = Watchdog::new(

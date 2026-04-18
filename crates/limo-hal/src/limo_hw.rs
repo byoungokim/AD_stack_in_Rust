@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use crossbeam_channel::{self, Receiver, Sender};
 use serde::Deserialize;
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand,

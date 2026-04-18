@@ -2,11 +2,8 @@
 ///
 /// Loads a YOLO .onnx model and runs inference on camera frames.
 /// Falls back to a no-op detector if model is unavailable.
-use anyhow::{Context, Result};
-use tracing::{debug, info};
+use anyhow::Result;
 
-use super::preprocessing::{preprocess_image, compute_scale};
-use super::postprocessing::{decode_yolo_output, nms, Detection, coco_to_object_class};
 
 const DEFAULT_INPUT_SIZE: u32 = 640;
 const DEFAULT_CONFIDENCE: f32 = 0.5;
@@ -75,7 +72,7 @@ impl ObjectDetector {
     ///
     /// Input: raw BGR8 image bytes, width, height
     /// Output: list of detections
-    pub fn detect(&mut self, image_data: &[u8], width: u32, height: u32) -> Vec<CameraDetection> {
+    pub fn detect(&mut self, _image_data: &[u8], _width: u32, _height: u32) -> Vec<CameraDetection> {
         match &self.mode {
             #[cfg(feature = "onnx")]
             DetectorMode::Onnx(session) => {

@@ -17,13 +17,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use config::{load_config, SensPercConfig};
 use store::SensorStore;
 
-use limo_hal::{SensorSource, Pose2D as HalPose2D, Twist2D as HalTwist2D};
+use limo_hal::SensorSource;
 use limo_hal::limo_hw::{LimoHwSensorSource, LimoHwSensorConfig};
 use limo_hal::sim_zmq::SimZmqSensorSource;
 use limo_hal::dummy::DummySensorSource;
@@ -257,7 +257,7 @@ fn aggregator_loop(
         }
 
         // Read latest sensor data
-        let latest_camera = store.camera_buffer.pop_latest();
+        let _latest_camera = store.camera_buffer.pop_latest();
         let latest_lidar = store.lidar_buffer.pop_latest();
         let _latest_imu = store.imu_buffer.pop_latest();
 

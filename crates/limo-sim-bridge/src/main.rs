@@ -18,15 +18,14 @@ mod config;
 mod dummy_sim;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use config::{load_config, SimBridgeConfig};
-use limo_transport::{Channel, Publisher, Subscriber};
+use limo_transport::{Channel, Subscriber};
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 

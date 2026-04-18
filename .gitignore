@@ -24,9 +24,9 @@ venv/
 compile_commands.json
 
 # Models (large binary files)
-models/*.engine
-models/*.onnx
-models/*.pt
+*.engine
+*.onnx
+*.pt
 
 # Logs & recordings
 logs/

@@ -104,7 +104,7 @@ impl LocalPlanner {
     }
 
     /// Check if MPC should be used (tight curvature ahead).
-    fn should_use_mpc(&self, state: &RobotState, path: &[PathWaypoint]) -> bool {
+    fn should_use_mpc(&self, _state: &RobotState, path: &[PathWaypoint]) -> bool {
         // Look at the next few waypoints for sharp turns
         let lookahead = 5.min(path.len());
         for i in 1..lookahead {

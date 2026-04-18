@@ -29,7 +29,7 @@ use behavior::{BehaviorInput, BehaviorPlanner};
 use config::{load_config, PlanningConfig};
 use e2e::E2EInference;
 use global_planner::{HybridAStar, OccupancyGrid, Pose, PathWaypoint};
-use local_planner::{LocalPlanner, Obstacle, RobotState, VelocityCommand};
+use local_planner::{LocalPlanner, Obstacle, RobotState};
 
 use limo_transport::{Channel, Publisher, Subscriber};
 
