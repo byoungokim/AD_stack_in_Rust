@@ -23,10 +23,17 @@ pub struct ArbitratorConfig {
     pub safety: SafetyEnvelopeConfig,
     #[serde(default = "default_e2e_confidence_threshold")]
     pub e2e_confidence_threshold: f32,
+    /// Minimum confidence required to trust the traditional pipeline as a
+    /// fallback from E2E. If both E2E and traditional are below threshold,
+    /// the arbitrator emits an emergency stop instead of propagating a
+    /// low-confidence command.
+    #[serde(default = "default_fallback_min_confidence")]
+    pub fallback_min_confidence: f32,
 }
 
 fn default_rate_hz() -> u32 { 10 }
 fn default_e2e_confidence_threshold() -> f32 { 0.7 }
+fn default_fallback_min_confidence() -> f32 { 0.3 }
 
 impl Default for ArbitratorConfig {
     fn default() -> Self {
@@ -34,6 +41,7 @@ impl Default for ArbitratorConfig {
             rate_hz: default_rate_hz(),
             safety: SafetyEnvelopeConfig::default(),
             e2e_confidence_threshold: default_e2e_confidence_threshold(),
+            fallback_min_confidence: default_fallback_min_confidence(),
         }
     }
 }
@@ -103,32 +111,43 @@ impl Arbitrator {
     }
 
     /// Select between traditional and E2E commands, apply safety envelope.
+    /// In E2E mode, falls back to traditional when E2E confidence is below
+    /// `e2e_confidence_threshold`; emits an emergency stop when the fallback
+    /// itself is below `fallback_min_confidence`.
     pub fn arbitrate(
         &mut self,
         traditional: &VelocityCommand,
         e2e: Option<&VelocityCommand>,
         dt: f64,
     ) -> ArbitratorOutput {
+        let fallback_or_estop = |arb: &mut Self| -> Option<ArbitratorOutput> {
+            if traditional.confidence < arb.config.fallback_min_confidence {
+                Some(arb.emergency_stop())
+            } else {
+                None
+            }
+        };
+
         let (raw_cmd, source) = match self.mode {
             PipelineMode::Traditional => (traditional.clone(), PipelineMode::Traditional),
 
             PipelineMode::E2E => {
-                if let Some(e2e_cmd) = e2e {
-                    if e2e_cmd.confidence >= self.config.e2e_confidence_threshold {
-                        (e2e_cmd.clone(), PipelineMode::E2E)
-                    } else {
-                        // E2E confidence too low, fallback to traditional
+                let e2e_usable = e2e
+                    .filter(|c| c.confidence >= self.config.e2e_confidence_threshold);
+                match e2e_usable {
+                    Some(c) => (c.clone(), PipelineMode::E2E),
+                    None => {
+                        if let Some(estop) = fallback_or_estop(self) {
+                            return estop;
+                        }
                         (traditional.clone(), PipelineMode::Traditional)
                     }
-                } else {
-                    // No E2E output, fallback
-                    (traditional.clone(), PipelineMode::Traditional)
                 }
             }
 
             PipelineMode::Shadow => {
-                // Shadow: traditional controls, E2E is logged externally
-                (traditional.clone(), PipelineMode::Traditional)
+                // Shadow: traditional controls; E2E ran in parallel for logging.
+                (traditional.clone(), PipelineMode::Shadow)
             }
         };
 
@@ -268,6 +287,46 @@ mod tests {
         let out = arb.emergency_stop();
         assert!(out.emergency_stop);
         assert_eq!(out.command.linear_x, 0.0);
+        assert_eq!(out.command.angular_z, 0.0);
+    }
+
+    #[test]
+    fn test_e2e_mode_both_low_confidence_emergency_stops() {
+        let mut arb = Arbitrator::new(ArbitratorConfig::default());
+        arb.set_mode(PipelineMode::E2E);
+
+        let traditional = VelocityCommand { linear_x: 0.5, angular_z: 0.1, confidence: 0.2 };
+        let e2e = VelocityCommand { linear_x: 0.8, angular_z: 0.2, confidence: 0.3 };
+
+        let out = arb.arbitrate(&traditional, Some(&e2e), 0.1);
+        assert!(out.emergency_stop);
+        assert_eq!(out.command.linear_x, 0.0);
+        assert_eq!(out.command.angular_z, 0.0);
+    }
+
+    #[test]
+    fn test_e2e_mode_no_e2e_low_traditional_emergency_stops() {
+        let mut arb = Arbitrator::new(ArbitratorConfig::default());
+        arb.set_mode(PipelineMode::E2E);
+
+        let traditional = VelocityCommand { linear_x: 0.5, angular_z: 0.1, confidence: 0.1 };
+        let out = arb.arbitrate(&traditional, None, 0.1);
+        assert!(out.emergency_stop);
+    }
+
+    #[test]
+    fn test_shadow_mode_uses_traditional_and_tags_source() {
+        let mut arb = Arbitrator::new(ArbitratorConfig::default());
+        arb.set_mode(PipelineMode::Shadow);
+
+        let traditional = VelocityCommand { linear_x: 0.3, angular_z: 0.0, confidence: 0.9 };
+        let e2e = VelocityCommand { linear_x: 0.8, angular_z: 0.5, confidence: 0.95 };
+
+        let out = arb.arbitrate(&traditional, Some(&e2e), 0.1);
+        // Safety envelope may clip acceleration; check source + that e2e did not flow through.
+        assert_eq!(out.source, PipelineMode::Shadow);
+        assert!(!out.emergency_stop);
+        assert!(out.command.linear_x <= 0.3 + 1e-6);
         assert_eq!(out.command.angular_z, 0.0);
     }
 }
