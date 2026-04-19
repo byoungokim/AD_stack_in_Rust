@@ -15,6 +15,8 @@ pub struct LineSegment {
 }
 
 /// A corner (intersection of two line segments).
+// `angle` is read via Debug logging and by downstream scan matchers.
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Corner {
     pub position: Vector2<f64>,

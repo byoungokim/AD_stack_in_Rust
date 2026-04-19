@@ -103,6 +103,8 @@ impl KinematicsEngine {
 
     /// Convert a (linear, angular) velocity command to a steering angle (Ackermann).
     /// Returns the steering angle in radians.
+    // Public API used by the Ackermann tracker path; wiring lands when CH2 is connected.
+    #[allow(dead_code)]
     pub fn velocity_to_steering(&self, cmd: &MotorCommand) -> f64 {
         if cmd.linear_vel.abs() < 1e-6 {
             return 0.0;
@@ -161,10 +163,13 @@ impl KinematicsEngine {
         (linear, angular)
     }
 
+    // Public accessors for the integrated odometry pose (used by VehicleState publisher).
+    #[allow(dead_code)]
     pub fn pose(&self) -> &OdomPose {
         &self.pose
     }
 
+    #[allow(dead_code)]
     pub fn reset_pose(&mut self) {
         self.pose = OdomPose::default();
     }

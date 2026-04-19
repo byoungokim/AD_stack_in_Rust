@@ -7,6 +7,8 @@ use serde::Deserialize;
 
 use crate::local_planner::VelocityCommand;
 
+// Config fields loaded from YAML; rate_hz/confidence_threshold feed the inference loop once the model lands.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct E2EConfig {
     #[serde(default = "default_enabled")]

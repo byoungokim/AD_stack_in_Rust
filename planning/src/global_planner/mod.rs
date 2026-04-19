@@ -59,6 +59,8 @@ pub struct Pose {
 }
 
 /// A waypoint in the planned path.
+// `steering` is part of the path contract consumed by the tracker for feed-forward.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PathWaypoint {
     pub x: f64,

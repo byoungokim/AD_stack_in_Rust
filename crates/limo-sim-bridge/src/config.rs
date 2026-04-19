@@ -12,6 +12,8 @@ pub struct SimBridgeConfig {
     // Endpoint for subscribing control commands
     #[serde(default = "default_ch7_connect")]
     pub ch7_endpoint_connect: String,
+    // Bind endpoint for when sim bridge acts as publisher (future sim-as-server mode)
+    #[allow(dead_code)]
     #[serde(default = "default_ch7_bind")]
     pub ch7_endpoint_bind: String,
 

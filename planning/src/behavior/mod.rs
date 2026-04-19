@@ -65,6 +65,8 @@ pub struct Goal {
 }
 
 /// Input to the behavior planner from perception.
+// `robot_theta` is part of the public pose contract; Debug-logged and will feed heading-aware checks.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct BehaviorInput {
     pub robot_x: f64,

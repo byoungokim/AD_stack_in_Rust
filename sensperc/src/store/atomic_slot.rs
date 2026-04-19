@@ -40,6 +40,8 @@ impl<T: Clone> AtomicSlot<T> {
     }
 
     /// Load value with its age in seconds. Returns (None, f64::INFINITY) if unset or lock poisoned.
+    // Public API used by the aggregator to age-weight stale sensor slots.
+    #[allow(dead_code)]
     pub fn load_with_age(&self) -> (Option<T>, f64) {
         let inner = match self.inner.read() {
             Ok(guard) => guard,

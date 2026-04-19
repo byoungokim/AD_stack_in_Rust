@@ -42,6 +42,8 @@ impl Default for WatchdogConfig {
 }
 
 /// Reason the emergency stop was triggered.
+// Variants carry diagnostic fields read via Debug formatting in the e-stop log line.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum EstopReason {
     CommandTimeout { age_ms: u64 },
@@ -174,6 +176,8 @@ impl Watchdog {
         self.current_speed
     }
 
+    // Public accessor used by the control loop and StatePublisher to gate output.
+    #[allow(dead_code)]
     pub fn is_estop_active(&self) -> bool {
         self.estop_active.load(Ordering::Acquire)
     }

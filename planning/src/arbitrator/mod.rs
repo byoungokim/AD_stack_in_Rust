@@ -106,6 +106,8 @@ impl Arbitrator {
         self.mode = mode;
     }
 
+    // Public getter, symmetric with set_mode; used by status publisher.
+    #[allow(dead_code)]
     pub fn mode(&self) -> PipelineMode {
         self.mode
     }

@@ -23,6 +23,8 @@ pub struct SensorStore {
     pub imu_buffer: RingBuffer<ImuReading>,
 
     // --- Atomic slots for processed results (processors → aggregator) ---
+    // Written by the SensorFusion thread once EKF lands; aggregator already references the slot field.
+    #[allow(dead_code)]
     pub latest_fused_state: AtomicSlot<FusedState>,
 
     // --- Localization: pose and velocity from any source ---

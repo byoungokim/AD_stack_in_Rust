@@ -112,6 +112,8 @@ impl TrajectoryTracker {
     }
 
     /// Check if the tracker has a trajectory to follow.
+    // Public API used by the control loop to gate compute() once CH2 trajectories arrive.
+    #[allow(dead_code)]
     pub fn has_trajectory(&self) -> bool {
         !self.trajectory.is_empty()
     }

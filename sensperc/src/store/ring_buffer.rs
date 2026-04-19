@@ -61,17 +61,21 @@ impl<T> RingBuffer<T> {
         self.queue.is_empty()
     }
 
+    // Public introspection/sharing API for ring-buffer consumers (stats, fan-out across threads).
+    #[allow(dead_code)]
     /// Current number of items in the buffer.
     pub fn len(&self) -> usize {
         self.queue.len()
     }
 
     /// Buffer capacity.
+    #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
     /// Get a clone of the inner Arc for sharing across threads.
+    #[allow(dead_code)]
     pub fn handle(&self) -> Arc<ArrayQueue<T>> {
         Arc::clone(&self.queue)
     }

@@ -26,6 +26,8 @@ pub struct Detection {
 }
 
 /// Object class names matching our proto ObjectClass enum.
+// Used for human-readable logging once the ONNX detector path is enabled.
+#[allow(dead_code)]
 pub const CLASS_NAMES: &[&str] = &[
     "person",       // 0 → OBJECT_PERSON (1)
     "vehicle",      // 1 → OBJECT_VEHICLE (2)
@@ -59,6 +61,8 @@ pub fn coco_to_object_class(coco_id: usize) -> usize {
 /// YOLO v8 output format: [1, num_classes+4, num_boxes]
 /// Transposed: [1, num_boxes, num_classes+4]
 /// Each box: [x_center, y_center, width, height, class_scores...]
+// Only invoked from the `onnx` feature gated detector path.
+#[allow(dead_code)]
 pub fn decode_yolo_output(
     output: &[f32],
     num_boxes: usize,

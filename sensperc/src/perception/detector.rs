@@ -10,6 +10,8 @@ const DEFAULT_CONFIDENCE: f32 = 0.5;
 const DEFAULT_NMS_THRESHOLD: f32 = 0.45;
 
 /// Object detector wrapping ONNX Runtime inference.
+// Inference fields are only read in the `onnx` feature path; kept for fallback parity.
+#[allow(dead_code)]
 pub struct ObjectDetector {
     mode: DetectorMode,
     input_size: u32,

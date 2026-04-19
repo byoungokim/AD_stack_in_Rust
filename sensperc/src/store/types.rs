@@ -1,6 +1,8 @@
 /// Sensor data types used within the sensperc process.
 use nalgebra::Vector3;
 
+// Sensor payload structs: fields are consumed by detection / SLAM / fusion threads and by bag-replay.
+#[allow(dead_code)]
 /// Raw camera frame.
 #[derive(Clone)]
 pub struct CameraFrame {
@@ -13,6 +15,7 @@ pub struct CameraFrame {
 }
 
 /// Single LiDAR scan.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct LidarScan {
     pub timestamp_ns: u64,
@@ -27,6 +30,7 @@ pub struct LidarScan {
 }
 
 /// Single IMU measurement.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct ImuReading {
     pub timestamp_ns: u64,
@@ -53,6 +57,8 @@ pub struct Twist2D {
 }
 
 /// Fused sensor state from EKF.
+// Published to the aggregator once the fusion thread lands.
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct FusedState {
     pub timestamp_ns: u64,
