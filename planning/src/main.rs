@@ -331,27 +331,7 @@ fn main() -> Result<()> {
         };
 
         // --- 9. Publish ControlCommand on CH2 ---
-        let control_cmd = limo_proto::ControlCommand {
-            header: Some(limo_proto::Header {
-                timestamp_ns: now_ns(),
-                sequence: cycle as u32,
-                frame_id: "".into(),
-            }),
-            source: match arb_out.source {
-                arbitrator::PipelineMode::Traditional => limo_proto::PipelineSource::SourceTraditional as i32,
-                arbitrator::PipelineMode::E2E => limo_proto::PipelineSource::SourceE2e as i32,
-                arbitrator::PipelineMode::Shadow => limo_proto::PipelineSource::SourceTraditional as i32,
-            },
-            command: Some(limo_proto::control_command::Command::VelocityCmd(
-                limo_proto::Twist2D {
-                    linear_x: arb_out.command.linear_x,
-                    linear_y: 0.0,
-                    angular_z: arb_out.command.angular_z,
-                },
-            )),
-            confidence: arb_out.command.confidence,
-            emergency_stop: arb_out.emergency_stop,
-        };
+        let control_cmd = arbitrator::encode_control_command(&arb_out, cycle as u32, now_ns());
 
         if let Err(e) = ch2_pub.publish(&control_cmd) {
             warn!("Failed to publish ControlCommand: {:#}", e);

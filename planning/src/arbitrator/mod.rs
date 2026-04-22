@@ -87,6 +87,37 @@ pub struct ArbitratorOutput {
     pub safety_clipped: bool,
 }
 
+/// Encode an ArbitratorOutput as the wire-format ControlCommand published on CH2.
+/// Shadow mode maps to SourceTraditional on the wire — the wire command IS the
+/// traditional one; Shadow is an internal mode flag, not a wire source.
+pub fn encode_control_command(
+    out: &ArbitratorOutput,
+    sequence: u32,
+    timestamp_ns: u64,
+) -> limo_proto::ControlCommand {
+    limo_proto::ControlCommand {
+        header: Some(limo_proto::Header {
+            timestamp_ns,
+            sequence,
+            frame_id: "".into(),
+        }),
+        source: match out.source {
+            PipelineMode::Traditional => limo_proto::PipelineSource::SourceTraditional as i32,
+            PipelineMode::E2E => limo_proto::PipelineSource::SourceE2e as i32,
+            PipelineMode::Shadow => limo_proto::PipelineSource::SourceTraditional as i32,
+        },
+        command: Some(limo_proto::control_command::Command::VelocityCmd(
+            limo_proto::Twist2D {
+                linear_x: out.command.linear_x,
+                linear_y: 0.0,
+                angular_z: out.command.angular_z,
+            },
+        )),
+        confidence: out.command.confidence,
+        emergency_stop: out.emergency_stop,
+    }
+}
+
 pub struct Arbitrator {
     config: ArbitratorConfig,
     mode: PipelineMode,
@@ -314,6 +345,70 @@ mod tests {
         let traditional = VelocityCommand { linear_x: 0.5, angular_z: 0.1, confidence: 0.1 };
         let out = arb.arbitrate(&traditional, None, 0.1);
         assert!(out.emergency_stop);
+    }
+
+    // ---- encode_control_command ----
+
+    #[test]
+    fn encode_estop_sets_emergency_stop_and_zero_velocity() {
+        let mut arb = Arbitrator::new(ArbitratorConfig::default());
+        let out = arb.emergency_stop();
+        let wire = encode_control_command(&out, 7, 1_000);
+
+        assert!(wire.emergency_stop);
+        assert_eq!(wire.header.as_ref().unwrap().sequence, 7);
+        assert_eq!(wire.header.as_ref().unwrap().timestamp_ns, 1_000);
+        match wire.command.unwrap() {
+            limo_proto::control_command::Command::VelocityCmd(v) => {
+                assert_eq!(v.linear_x, 0.0);
+                assert_eq!(v.angular_z, 0.0);
+            }
+            _ => panic!("expected VelocityCmd"),
+        }
+    }
+
+    #[test]
+    fn encode_shadow_mode_maps_to_traditional_source_on_wire() {
+        let out = ArbitratorOutput {
+            command: VelocityCommand { linear_x: 0.3, angular_z: 0.1, confidence: 0.9 },
+            source: PipelineMode::Shadow,
+            emergency_stop: false,
+            safety_clipped: false,
+        };
+        let wire = encode_control_command(&out, 0, 0);
+        assert_eq!(wire.source, limo_proto::PipelineSource::SourceTraditional as i32);
+    }
+
+    #[test]
+    fn encode_e2e_mode_maps_to_e2e_source_on_wire() {
+        let out = ArbitratorOutput {
+            command: VelocityCommand { linear_x: 0.4, angular_z: 0.0, confidence: 0.95 },
+            source: PipelineMode::E2E,
+            emergency_stop: false,
+            safety_clipped: false,
+        };
+        let wire = encode_control_command(&out, 0, 0);
+        assert_eq!(wire.source, limo_proto::PipelineSource::SourceE2e as i32);
+    }
+
+    #[test]
+    fn encode_preserves_confidence_and_velocity() {
+        let out = ArbitratorOutput {
+            command: VelocityCommand { linear_x: 0.6, angular_z: -0.2, confidence: 0.8 },
+            source: PipelineMode::Traditional,
+            emergency_stop: false,
+            safety_clipped: false,
+        };
+        let wire = encode_control_command(&out, 42, 999);
+        assert!((wire.confidence - 0.8).abs() < 1e-6);
+        match wire.command.unwrap() {
+            limo_proto::control_command::Command::VelocityCmd(v) => {
+                assert!((v.linear_x - 0.6).abs() < 1e-9);
+                assert!((v.angular_z - (-0.2)).abs() < 1e-9);
+                assert_eq!(v.linear_y, 0.0);
+            }
+            _ => panic!("expected VelocityCmd"),
+        }
     }
 
     #[test]
