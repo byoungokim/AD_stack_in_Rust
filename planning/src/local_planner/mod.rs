@@ -18,6 +18,24 @@ pub struct VelocityCommand {
     pub confidence: f32,  // [0.0, 1.0]
 }
 
+/// Pose along a predicted trajectory.
+#[derive(Debug, Clone, Default)]
+pub struct TrajPoint {
+    pub x: f64,
+    pub y: f64,
+    pub theta: f64,
+}
+
+/// Local planner output: the velocity command plus the predicted trajectory
+/// obtained by forward-integrating that command from the current state. The
+/// trajectory is forwarded to the tracker (feed-forward) and published on CH10
+/// for visualization.
+#[derive(Debug, Clone, Default)]
+pub struct LocalPlan {
+    pub command: VelocityCommand,
+    pub trajectory: Vec<TrajPoint>,
+}
+
 /// Robot state for local planning.
 #[derive(Debug, Clone, Default)]
 pub struct RobotState {
@@ -81,26 +99,36 @@ impl LocalPlanner {
         }
     }
 
-    /// Compute a velocity command given robot state, path, and obstacles.
+    /// Compute a velocity command + predicted trajectory.
+    /// Empty path → zero command, empty trajectory.
     pub fn compute(
         &mut self,
         state: &RobotState,
         path: &[PathWaypoint],
         obstacles: &[Obstacle],
         desired_speed: f64,
-    ) -> VelocityCommand {
+    ) -> LocalPlan {
         if path.is_empty() {
-            return VelocityCommand::default();
+            return LocalPlan::default();
         }
 
         // Determine if MPC should take over based on path curvature
         self.use_mpc = self.should_use_mpc(state, path);
 
-        if self.use_mpc {
+        let command = if self.use_mpc {
             self.mpc_planner.compute(state, path, obstacles, desired_speed)
         } else {
             self.dwa_planner.compute(state, path, obstacles, desired_speed)
-        }
+        };
+
+        let trajectory = rollout(
+            state,
+            &command,
+            self.config.dwa.sim_time,
+            self.config.dwa.sim_dt,
+        );
+
+        LocalPlan { command, trajectory }
     }
 
     /// Check if MPC should be used (tight curvature ahead).
@@ -125,5 +153,62 @@ impl LocalPlanner {
 
     pub fn is_using_mpc(&self) -> bool {
         self.use_mpc
+    }
+}
+
+/// Forward-integrate a (v, ω) command from `state` over `horizon` at step `dt`.
+/// Stops early on NaN/Inf to avoid poisoning the published trajectory.
+fn rollout(state: &RobotState, cmd: &VelocityCommand, horizon: f64, dt: f64) -> Vec<TrajPoint> {
+    if horizon <= 0.0 || dt <= 0.0 {
+        return Vec::new();
+    }
+    let steps = (horizon / dt) as usize;
+    let mut out = Vec::with_capacity(steps);
+    let (mut x, mut y, mut theta) = (state.x, state.y, state.theta);
+    for _ in 0..steps {
+        x += cmd.linear_x * theta.cos() * dt;
+        y += cmd.linear_x * theta.sin() * dt;
+        theta += cmd.angular_z * dt;
+        if !x.is_finite() || !y.is_finite() || !theta.is_finite() {
+            break;
+        }
+        out.push(TrajPoint { x, y, theta });
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rollout_straight_line_advances_along_x() {
+        let state = RobotState { x: 0.0, y: 0.0, theta: 0.0, linear_vel: 0.0, angular_vel: 0.0 };
+        let cmd = VelocityCommand { linear_x: 0.5, angular_z: 0.0, confidence: 0.9 };
+        let traj = rollout(&state, &cmd, 1.0, 0.1);
+        assert_eq!(traj.len(), 10);
+        // After 1s at 0.5 m/s, x should be ~0.5.
+        let last = traj.last().unwrap();
+        assert!((last.x - 0.5).abs() < 1e-9);
+        assert!(last.y.abs() < 1e-9);
+        assert!(last.theta.abs() < 1e-9);
+    }
+
+    #[test]
+    fn rollout_pure_rotation_keeps_position() {
+        let state = RobotState { x: 1.0, y: 2.0, theta: 0.0, linear_vel: 0.0, angular_vel: 0.0 };
+        let cmd = VelocityCommand { linear_x: 0.0, angular_z: 1.0, confidence: 0.9 };
+        let traj = rollout(&state, &cmd, 1.0, 0.1);
+        let last = traj.last().unwrap();
+        assert!((last.x - 1.0).abs() < 1e-9);
+        assert!((last.y - 2.0).abs() < 1e-9);
+        assert!((last.theta - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rollout_empty_horizon_is_empty() {
+        let state = RobotState::default();
+        let cmd = VelocityCommand { linear_x: 1.0, angular_z: 0.0, confidence: 0.9 };
+        assert!(rollout(&state, &cmd, 0.0, 0.1).is_empty());
     }
 }

@@ -308,12 +308,13 @@ fn main() -> Result<()> {
 
         // --- 7. Local planner (10Hz) ---
         let desired_speed = behavior_out.desired_speed.min(scenario_speed_limit);
-        let trad_cmd = local.compute(
+        let local_plan = local.compute(
             &robot_state,
             &global_path,
             &obstacles,
             desired_speed,
         );
+        let trad_cmd = local_plan.command.clone();
 
         // --- 7. E2E inference (if enabled) ---
         let e2e_cmd = if e2e_engine.is_enabled() {
@@ -391,7 +392,9 @@ fn main() -> Result<()> {
                 global_path: global_path.iter().map(|wp| limo_proto::Pose2D {
                     x: wp.x, y: wp.y, theta: wp.theta,
                 }).collect(),
-                local_trajectory: vec![], // TODO: from local planner
+                local_trajectory: local_plan.trajectory.iter().map(|p| limo_proto::Pose2D {
+                    x: p.x, y: p.y, theta: p.theta,
+                }).collect(),
                 current_goal: if scenario_active && current_wp_index < scenario_waypoints.len() {
                     scenario_waypoints[current_wp_index].goal_pose.clone()
                 } else { None },
