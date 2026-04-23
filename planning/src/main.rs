@@ -53,6 +53,10 @@ fn main() -> Result<()> {
         PlanningConfig::default()
     });
 
+    if let Err(e) = config.arbitrator.validate() {
+        anyhow::bail!("Invalid planning config: {}", e);
+    }
+
     info!(
         "Config: behavior={}Hz, global=Hybrid A*, local=DWA+MPC {}Hz, arb={}Hz, e2e={}",
         config.behavior.rate_hz,

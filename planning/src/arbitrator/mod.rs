@@ -78,6 +78,49 @@ impl Default for SafetyEnvelopeConfig {
     }
 }
 
+impl SafetyEnvelopeConfig {
+    /// Reject physically nonsensical envelope values. A safety gate must not be
+    /// disabled by a YAML typo (max_speed: 0 means "never move", max_accel: -1
+    /// means "anti-accelerate"). Fail loudly at startup.
+    pub fn validate(&self) -> Result<(), String> {
+        if !(self.max_speed > 0.0 && self.max_speed.is_finite()) {
+            return Err(format!("safety.max_speed must be > 0, got {}", self.max_speed));
+        }
+        if !(self.max_acceleration > 0.0 && self.max_acceleration.is_finite()) {
+            return Err(format!("safety.max_acceleration must be > 0, got {}", self.max_acceleration));
+        }
+        if !(self.max_deceleration > 0.0 && self.max_deceleration.is_finite()) {
+            return Err(format!("safety.max_deceleration must be > 0, got {}", self.max_deceleration));
+        }
+        if !(self.max_angular_speed > 0.0 && self.max_angular_speed.is_finite()) {
+            return Err(format!("safety.max_angular_speed must be > 0, got {}", self.max_angular_speed));
+        }
+        if !(self.max_curvature > 0.0 && self.max_curvature.is_finite()) {
+            return Err(format!("safety.max_curvature must be > 0, got {}", self.max_curvature));
+        }
+        Ok(())
+    }
+}
+
+impl ArbitratorConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        self.safety.validate()?;
+        if !(0.0..=1.0).contains(&self.e2e_confidence_threshold) {
+            return Err(format!(
+                "e2e_confidence_threshold must be in [0, 1], got {}",
+                self.e2e_confidence_threshold
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.fallback_min_confidence) {
+            return Err(format!(
+                "fallback_min_confidence must be in [0, 1], got {}",
+                self.fallback_min_confidence
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Output from the arbitrator.
 #[derive(Debug, Clone)]
 pub struct ArbitratorOutput {
@@ -389,6 +432,42 @@ mod tests {
         };
         let wire = encode_control_command(&out, 0, 0);
         assert_eq!(wire.source, limo_proto::PipelineSource::SourceE2e as i32);
+    }
+
+    // ---- Config validation ----
+
+    #[test]
+    fn validate_rejects_nonpositive_max_speed() {
+        let cfg = SafetyEnvelopeConfig { max_speed: 0.0, ..Default::default() };
+        assert!(cfg.validate().is_err());
+        let cfg = SafetyEnvelopeConfig { max_speed: -1.0, ..Default::default() };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_nonpositive_acceleration() {
+        let cfg = SafetyEnvelopeConfig { max_acceleration: 0.0, ..Default::default() };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_nan_curvature() {
+        let cfg = SafetyEnvelopeConfig { max_curvature: f64::NAN, ..Default::default() };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_default() {
+        assert!(SafetyEnvelopeConfig::default().validate().is_ok());
+        assert!(ArbitratorConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_confidence_out_of_range() {
+        let cfg = ArbitratorConfig { e2e_confidence_threshold: 1.5, ..Default::default() };
+        assert!(cfg.validate().is_err());
+        let cfg = ArbitratorConfig { fallback_min_confidence: -0.1, ..Default::default() };
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

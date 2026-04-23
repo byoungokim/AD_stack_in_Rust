@@ -56,6 +56,37 @@ impl Default for KinematicsConfig {
     }
 }
 
+impl KinematicsConfig {
+    /// Reject physically impossible geometry. Zero wheelbase divides by zero in
+    /// Ackermann; negative wheel_radius inverts odometry; steering at/above
+    /// π/2 blows up atan clamps. Fail loudly at startup.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.mode != "ackermann" && self.mode != "differential" {
+            return Err(format!(
+                "kinematics.mode must be 'ackermann' or 'differential', got '{}'",
+                self.mode
+            ));
+        }
+        if !(self.wheelbase > 0.0 && self.wheelbase.is_finite()) {
+            return Err(format!("kinematics.wheelbase must be > 0, got {}", self.wheelbase));
+        }
+        if !(self.track_width > 0.0 && self.track_width.is_finite()) {
+            return Err(format!("kinematics.track_width must be > 0, got {}", self.track_width));
+        }
+        if !(self.wheel_radius > 0.0 && self.wheel_radius.is_finite()) {
+            return Err(format!("kinematics.wheel_radius must be > 0, got {}", self.wheel_radius));
+        }
+        let max_valid = std::f64::consts::FRAC_PI_2;
+        if !(self.max_steering_angle > 0.0 && self.max_steering_angle < max_valid) {
+            return Err(format!(
+                "kinematics.max_steering_angle must be in (0, π/2), got {}",
+                self.max_steering_angle
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// 2D pose for odometry tracking.
 #[derive(Clone, Debug, Default)]
 pub struct OdomPose {
@@ -250,5 +281,39 @@ mod tests {
     fn test_normalize_angle() {
         assert!((normalize_angle(4.0) - (4.0 - 2.0 * std::f64::consts::PI)).abs() < 1e-10);
         assert!((normalize_angle(-4.0) - (-4.0 + 2.0 * std::f64::consts::PI)).abs() < 1e-10);
+    }
+
+    // ---- Config validation ----
+
+    #[test]
+    fn validate_default_is_ok() {
+        assert!(KinematicsConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_unknown_mode() {
+        let cfg = KinematicsConfig { mode: "omni".into(), ..KinematicsConfig::default() };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_zero_wheelbase() {
+        let cfg = KinematicsConfig { wheelbase: 0.0, ..KinematicsConfig::default() };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_negative_wheel_radius() {
+        let cfg = KinematicsConfig { wheel_radius: -0.01, ..KinematicsConfig::default() };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_steering_at_pi_over_2() {
+        let cfg = KinematicsConfig {
+            max_steering_angle: std::f64::consts::FRAC_PI_2,
+            ..KinematicsConfig::default()
+        };
+        assert!(cfg.validate().is_err());
     }
 }
