@@ -25,3 +25,9 @@ kinematics:
 
 state_publisher:
   rate_hz: 20
+
+# Sim-only fault injection. Drops VehicleState feedback on CH6 so the control
+# watchdog and odometry paths can be stress-tested. Seed fixes the PRNG.
+# sim_faults:
+#   feedback_drop_rate: 0.2
+#   seed: 7

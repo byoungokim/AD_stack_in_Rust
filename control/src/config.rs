@@ -1,6 +1,8 @@
 /// Configuration for the Control process.
 use serde::Deserialize;
 
+use limo_hal::sim_zmq::SimFaultConfig;
+
 use crate::kinematics::KinematicsConfig;
 use crate::tracker::TrackerConfig;
 use crate::watchdog::WatchdogConfig;
@@ -17,6 +19,8 @@ pub struct ControlConfig {
     pub transport: TransportConfig,
     #[serde(default)]
     pub state_publisher: StatePublisherConfig,
+    #[serde(default)]
+    pub sim_faults: SimFaultConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -61,6 +65,7 @@ impl Default for ControlConfig {
             watchdog: WatchdogConfig::default(),
             transport: TransportConfig::default(),
             state_publisher: StatePublisherConfig::default(),
+            sim_faults: SimFaultConfig::default(),
         }
     }
 }

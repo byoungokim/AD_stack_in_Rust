@@ -38,11 +38,14 @@ impl Default for SimAckermannConfig {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct SimFaultConfig {
+    // Sensor-side (CH5) drop rates.
     pub camera_drop_rate: f32,
     pub lidar_drop_rate: f32,
     pub imu_drop_rate: f32,
     pub pose_drop_rate: f32,
     pub velocity_drop_rate: f32,
+    // Controller-side (CH6) drop rate — simulates lost/late VehicleState feedback.
+    pub feedback_drop_rate: f32,
     pub seed: u64,
 }
 
@@ -54,6 +57,7 @@ impl SimFaultConfig {
             || self.imu_drop_rate > 0.0
             || self.pose_drop_rate > 0.0
             || self.velocity_drop_rate > 0.0
+            || self.feedback_drop_rate > 0.0
     }
 }
 
@@ -234,21 +238,34 @@ pub struct SimZmqVehicleController {
     latest_feedback: Option<ChassisFeedback>,
     sequence: u32,
     kinematics: SimAckermannConfig,
+    faults: SimFaultConfig,
+    rng: XorShift64,
 }
 
 impl SimZmqVehicleController {
     pub fn new() -> Self {
-        Self::with_kinematics(SimAckermannConfig::default())
+        Self::with_config(SimAckermannConfig::default(), SimFaultConfig::default())
     }
 
     pub fn with_kinematics(kinematics: SimAckermannConfig) -> Self {
+        Self::with_config(kinematics, SimFaultConfig::default())
+    }
+
+    pub fn with_config(kinematics: SimAckermannConfig, faults: SimFaultConfig) -> Self {
+        let rng = XorShift64::new(faults.seed);
         Self {
             ch6_sub: None,
             ch7_pub: None,
             latest_feedback: None,
             sequence: 0,
             kinematics,
+            faults,
+            rng,
         }
+    }
+
+    fn should_drop(&self, rate: f32) -> bool {
+        rate > 0.0 && self.rng.next_f32() < rate
     }
 
     /// Ackermann bicycle model: delta = atan(omega * L / v), clamped.
@@ -261,26 +278,26 @@ impl SimZmqVehicleController {
     }
 
     fn poll_feedback(&mut self) {
-        let sub = match &mut self.ch6_sub {
-            Some(s) => s,
-            None => return,
-        };
-
         loop {
-            match sub.recv::<limo_proto::SimVehicleState>(Duration::from_millis(0)) {
-                Ok(Some(vs)) => {
-                    self.latest_feedback = Some(ChassisFeedback {
-                        left_wheel_rpm: 0.0,
-                        right_wheel_rpm: 0.0,
-                        steering_angle: vs.steering_angle,
-                        battery_voltage: vs.battery_voltage,
-                        error_code: 0,
-                        timestamp_ns: vs.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0),
-                    });
-                }
-                Ok(None) => break,
-                Err(_) => break,
+            let vs = match self.ch6_sub.as_mut() {
+                Some(sub) => match sub.recv::<limo_proto::SimVehicleState>(Duration::from_millis(0)) {
+                    Ok(Some(m)) => m,
+                    _ => return,
+                },
+                None => return,
+            };
+            // ch6_sub borrow released here; safe to call &self methods.
+            if self.should_drop(self.faults.feedback_drop_rate) {
+                continue;
             }
+            self.latest_feedback = Some(ChassisFeedback {
+                left_wheel_rpm: 0.0,
+                right_wheel_rpm: 0.0,
+                steering_angle: vs.steering_angle,
+                battery_voltage: vs.battery_voltage,
+                error_code: 0,
+                timestamp_ns: vs.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0),
+            });
         }
     }
 }
@@ -429,5 +446,35 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(a.next_f32(), b.next_f32());
         }
+    }
+
+    // ---- Controller-side fault injection ----
+
+    #[test]
+    fn controller_feedback_drop_rate_zero_never_drops() {
+        let ctrl = SimZmqVehicleController::with_config(
+            SimAckermannConfig::default(),
+            SimFaultConfig::default(),
+        );
+        for _ in 0..1000 {
+            assert!(!ctrl.should_drop(ctrl.faults.feedback_drop_rate));
+        }
+    }
+
+    #[test]
+    fn controller_feedback_drop_rate_one_always_drops() {
+        let ctrl = SimZmqVehicleController::with_config(
+            SimAckermannConfig::default(),
+            SimFaultConfig { feedback_drop_rate: 1.0, seed: 99, ..Default::default() },
+        );
+        for _ in 0..100 {
+            assert!(ctrl.should_drop(ctrl.faults.feedback_drop_rate));
+        }
+    }
+
+    #[test]
+    fn is_active_detects_feedback_drop() {
+        let cfg = SimFaultConfig { feedback_drop_rate: 0.2, ..Default::default() };
+        assert!(cfg.is_active());
     }
 }

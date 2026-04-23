@@ -51,6 +51,10 @@ fn main() -> Result<()> {
         ControlConfig::default()
     });
 
+    if let Err(e) = config.kinematics.validate() {
+        anyhow::bail!("Invalid control config: {}", e);
+    }
+
     let sim_mode = std::env::args().any(|a| a == "--sim")
         || std::env::var("LIMO_SIM").map_or(false, |v| v == "1");
     let dummy_mode = std::env::args().any(|a| a == "--dummy");
@@ -77,11 +81,21 @@ fn main() -> Result<()> {
 
     // --- Select vehicle controller via HAL ---
     let mut controller: Box<dyn VehicleController> = if sim_mode {
-        info!("Platform: SimZmq (CH6/CH7)");
-        Box::new(SimZmqVehicleController::with_kinematics(SimAckermannConfig {
-            wheelbase: config.kinematics.wheelbase,
-            max_steering_angle: config.kinematics.max_steering_angle,
-        }))
+        if config.sim_faults.is_active() {
+            info!(
+                "Platform: SimZmq (CH6/CH7) + fault injection (feedback_drop={:.2} seed={})",
+                config.sim_faults.feedback_drop_rate, config.sim_faults.seed,
+            );
+        } else {
+            info!("Platform: SimZmq (CH6/CH7)");
+        }
+        Box::new(SimZmqVehicleController::with_config(
+            SimAckermannConfig {
+                wheelbase: config.kinematics.wheelbase,
+                max_steering_angle: config.kinematics.max_steering_angle,
+            },
+            config.sim_faults.clone(),
+        ))
     } else if dummy_mode {
         info!("Platform: Dummy (simulated kinematics)");
         Box::new(DummyVehicleController::new())
