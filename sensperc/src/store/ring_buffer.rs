@@ -20,6 +20,7 @@ impl<T> RingBuffer<T> {
     }
 
     /// Push an item. If full, drops the oldest item first.
+    #[allow(dead_code)] // Test helper / future API; main path uses push_overwrite.
     pub fn push(&self, item: T) {
         if self.queue.push(item).is_err() {
             // Full — drop oldest and retry
@@ -43,6 +44,7 @@ impl<T> RingBuffer<T> {
     }
 
     /// Pop the oldest item. Returns None if empty.
+    #[allow(dead_code)] // Public API; main path uses pop_latest.
     pub fn pop(&self) -> Option<T> {
         self.queue.pop()
     }
@@ -57,6 +59,7 @@ impl<T> RingBuffer<T> {
     }
 
     /// Check if the buffer is empty.
+    #[allow(dead_code)] // Public API; not yet consumed in the hot path.
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }

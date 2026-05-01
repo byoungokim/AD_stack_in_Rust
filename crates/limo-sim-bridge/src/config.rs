@@ -22,10 +22,18 @@ pub struct SimBridgeConfig {
     pub dummy: DummySimConfig,
 }
 
-fn default_ch5_port() -> u16 { 5560 }
-fn default_ch6_port() -> u16 { 5561 }
-fn default_ch7_connect() -> String { "tcp://localhost:5562".into() }
-fn default_ch7_bind() -> String { "tcp://*:5562".into() }
+fn default_ch5_port() -> u16 {
+    5560
+}
+fn default_ch6_port() -> u16 {
+    5561
+}
+fn default_ch7_connect() -> String {
+    "tcp://localhost:5562".into()
+}
+fn default_ch7_bind() -> String {
+    "tcp://*:5562".into()
+}
 
 impl Default for SimBridgeConfig {
     fn default() -> Self {
@@ -53,11 +61,21 @@ pub struct DummySimConfig {
     pub lidar_num_points: u32,
 }
 
-fn default_sensor_rate() -> u32 { 30 }
-fn default_state_rate() -> u32 { 20 }
-fn default_image_width() -> u32 { 640 }
-fn default_image_height() -> u32 { 480 }
-fn default_lidar_points() -> u32 { 360 }
+fn default_sensor_rate() -> u32 {
+    30
+}
+fn default_state_rate() -> u32 {
+    20
+}
+fn default_image_width() -> u32 {
+    640
+}
+fn default_image_height() -> u32 {
+    480
+}
+fn default_lidar_points() -> u32 {
+    360
+}
 
 impl Default for DummySimConfig {
     fn default() -> Self {

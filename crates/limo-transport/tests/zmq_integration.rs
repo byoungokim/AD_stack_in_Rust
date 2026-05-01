@@ -6,9 +6,8 @@
 use std::thread;
 use std::time::Duration;
 
-use limo_proto;
-use limo_transport::{Channel, Publisher, Subscriber};
 use limo_transport::subscriber::BackgroundSubscriber;
+use limo_transport::{Channel, Publisher, Subscriber};
 
 /// Helper: create a ZMQ context for testing.
 fn test_ctx() -> zmq::Context {
@@ -87,8 +86,14 @@ fn test_vehicle_state_roundtrip() {
 
     assert!((received.steering_angle - 0.15).abs() < 1e-6);
     assert!((received.battery_voltage - 12.4).abs() < 1e-6);
-    assert_eq!(received.drive_mode, limo_proto::DriveMode::DriveAckermann as i32);
-    assert_eq!(received.ctrl_status, limo_proto::ControllerStatus::CtrlActive as i32);
+    assert_eq!(
+        received.drive_mode,
+        limo_proto::DriveMode::DriveAckermann as i32
+    );
+    assert_eq!(
+        received.ctrl_status,
+        limo_proto::ControllerStatus::CtrlActive as i32
+    );
 }
 
 // --- Test 2: WorldState roundtrip (SensPerc → Planning via CH1) ---
@@ -124,15 +129,13 @@ fn test_world_state_roundtrip() {
         }),
         detections: Some(limo_proto::DetectionArray {
             header: None,
-            detections: vec![
-                limo_proto::Detection {
-                    object_class: limo_proto::ObjectClass::ObjectPerson as i32,
-                    confidence: 0.95,
-                    bbox_image: None,
-                    position_world: Some(limo_proto::Point2D { x: 5.0, y: 3.0 }),
-                    distance: 4.2,
-                },
-            ],
+            detections: vec![limo_proto::Detection {
+                object_class: limo_proto::ObjectClass::ObjectPerson as i32,
+                confidence: 0.95,
+                bbox_image: None,
+                position_world: Some(limo_proto::Point2D { x: 5.0, y: 3.0 }),
+                distance: 4.2,
+            }],
         }),
         lanes: None,
         local_map: None,
@@ -152,7 +155,10 @@ fn test_world_state_roundtrip() {
 
     let dets = received.detections.unwrap();
     assert_eq!(dets.detections.len(), 1);
-    assert_eq!(dets.detections[0].object_class, limo_proto::ObjectClass::ObjectPerson as i32);
+    assert_eq!(
+        dets.detections[0].object_class,
+        limo_proto::ObjectClass::ObjectPerson as i32
+    );
     assert!((dets.detections[0].confidence - 0.95).abs() < 1e-6);
 }
 
@@ -296,7 +302,12 @@ fn test_multiple_messages_sequence() {
             Ok(Some(msg)) => {
                 let seq = msg.header.unwrap().sequence;
                 if received_count > 0 {
-                    assert!(seq > last_seq, "Messages out of order: {} <= {}", seq, last_seq);
+                    assert!(
+                        seq > last_seq,
+                        "Messages out of order: {} <= {}",
+                        seq,
+                        last_seq
+                    );
                 }
                 last_seq = seq;
                 received_count += 1;
@@ -362,7 +373,10 @@ fn test_topic_filtering() {
 
     // Should timeout because topic doesn't match
     let result = wrong_sub.recv::<limo_proto::VehicleState>(Duration::from_millis(300));
-    assert!(result.unwrap().is_none(), "Should not receive on wrong topic");
+    assert!(
+        result.unwrap().is_none(),
+        "Should not receive on wrong topic"
+    );
 }
 
 // --- Test 8: Background subscriber ---
@@ -380,7 +394,8 @@ fn test_background_subscriber() {
         &endpoint,
         Channel::VehicleState.topic(),
         16,
-    ).expect("Failed to start background subscriber");
+    )
+    .expect("Failed to start background subscriber");
 
     thread::sleep(Duration::from_millis(100));
 
@@ -404,7 +419,10 @@ fn test_background_subscriber() {
 
     // Get latest — should be the most recent message
     let latest = bg_sub.try_recv_latest();
-    assert!(latest.is_some(), "Expected at least one message from background subscriber");
+    assert!(
+        latest.is_some(),
+        "Expected at least one message from background subscriber"
+    );
 
     let latest = latest.unwrap();
     // The latest should have a high sequence number
@@ -442,7 +460,10 @@ fn test_heartbeat_roundtrip() {
 
     assert_eq!(received.process_name, "control");
     assert_eq!(received.timestamp_ns, 123456);
-    assert_eq!(received.status, limo_proto::ProcessStatus::ProcessNominal as i32);
+    assert_eq!(
+        received.status,
+        limo_proto::ProcessStatus::ProcessNominal as i32
+    );
     assert_eq!(received.sequence, 7);
 }
 
@@ -487,8 +508,9 @@ fn test_cross_thread_pubsub() {
 
     // Subscriber thread (simulates SensPerc process)
     let sub_handle = thread::spawn(move || {
-        let mut subscriber = Subscriber::connect(&sub_ctx, &endpoint, Channel::VehicleState.topic())
-            .expect("Failed to connect subscriber");
+        let mut subscriber =
+            Subscriber::connect(&sub_ctx, &endpoint, Channel::VehicleState.topic())
+                .expect("Failed to connect subscriber");
 
         let mut count = 0;
         let start = std::time::Instant::now();

@@ -13,8 +13,8 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::{
-    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand,
-    Pose2D, SensorSource, Twist2D, VehicleController,
+    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, Pose2D, SensorSource,
+    Twist2D, VehicleController,
 };
 
 // ======================== Config ========================
@@ -45,14 +45,30 @@ pub struct LimoHwSensorConfig {
     pub imu_rate_hz: u32,
 }
 
-fn default_cam_w() -> u32 { 640 }
-fn default_cam_h() -> u32 { 480 }
-fn default_cam_fps() -> u32 { 30 }
-fn default_lidar_baud() -> u32 { 230400 }
-fn default_lidar_hz() -> u32 { 10 }
-fn default_lidar_points() -> usize { 360 }
-fn default_imu_baud() -> u32 { 115200 }
-fn default_imu_hz() -> u32 { 100 }
+fn default_cam_w() -> u32 {
+    640
+}
+fn default_cam_h() -> u32 {
+    480
+}
+fn default_cam_fps() -> u32 {
+    30
+}
+fn default_lidar_baud() -> u32 {
+    230400
+}
+fn default_lidar_hz() -> u32 {
+    10
+}
+fn default_lidar_points() -> usize {
+    360
+}
+fn default_imu_baud() -> u32 {
+    115200
+}
+fn default_imu_hz() -> u32 {
+    100
+}
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct LimoHwControlConfig {
@@ -64,8 +80,12 @@ pub struct LimoHwControlConfig {
     pub chassis_rate_hz: u32,
 }
 
-fn default_chassis_baud() -> u32 { 460800 }
-fn default_chassis_hz() -> u32 { 10 }
+fn default_chassis_baud() -> u32 {
+    460800
+}
+fn default_chassis_hz() -> u32 {
+    10
+}
 
 // ======================== SensorSource ========================
 
@@ -100,27 +120,33 @@ impl SensorSource for LimoHwSensorSource {
         self.camera_rx = Some(cam_rx);
         let cam_cfg = self.config.clone();
         let cam_run = Arc::clone(&self.running);
-        self.threads.push(thread::Builder::new()
-            .name("hw-camera".into())
-            .spawn(move || camera_loop(&cam_cfg, cam_tx, &cam_run))?);
+        self.threads.push(
+            thread::Builder::new()
+                .name("hw-camera".into())
+                .spawn(move || camera_loop(&cam_cfg, cam_tx, &cam_run))?,
+        );
 
         // LiDAR thread
         let (lid_tx, lid_rx) = crossbeam_channel::bounded(8);
         self.lidar_rx = Some(lid_rx);
         let lid_cfg = self.config.clone();
         let lid_run = Arc::clone(&self.running);
-        self.threads.push(thread::Builder::new()
-            .name("hw-lidar".into())
-            .spawn(move || lidar_loop(&lid_cfg, lid_tx, &lid_run))?);
+        self.threads.push(
+            thread::Builder::new()
+                .name("hw-lidar".into())
+                .spawn(move || lidar_loop(&lid_cfg, lid_tx, &lid_run))?,
+        );
 
         // IMU thread
         let (imu_tx, imu_rx) = crossbeam_channel::bounded(64);
         self.imu_rx = Some(imu_rx);
         let imu_cfg = self.config.clone();
         let imu_run = Arc::clone(&self.running);
-        self.threads.push(thread::Builder::new()
-            .name("hw-imu".into())
-            .spawn(move || imu_loop(&imu_cfg, imu_tx, &imu_run))?);
+        self.threads.push(
+            thread::Builder::new()
+                .name("hw-imu".into())
+                .spawn(move || imu_loop(&imu_cfg, imu_tx, &imu_run))?,
+        );
 
         info!("LimoHwSensorSource started (3 driver threads)");
         Ok(())
@@ -128,7 +154,9 @@ impl SensorSource for LimoHwSensorSource {
 
     fn stop(&mut self) {
         self.running.store(false, Ordering::Release);
-        for h in self.threads.drain(..) { let _ = h.join(); }
+        for h in self.threads.drain(..) {
+            let _ = h.join();
+        }
         info!("LimoHwSensorSource stopped");
     }
 
@@ -152,7 +180,9 @@ impl SensorSource for LimoHwSensorSource {
         None // velocity comes from odometry in the control process
     }
 
-    fn name(&self) -> &str { "limo_hw" }
+    fn name(&self) -> &str {
+        "limo_hw"
+    }
 }
 
 // ======================== VehicleController ========================
@@ -185,9 +215,11 @@ impl VehicleController for LimoHwVehicleController {
         let fb = Arc::clone(&self.feedback);
         let run = Arc::clone(&self.running);
 
-        self.thread = Some(thread::Builder::new()
-            .name("hw-chassis".into())
-            .spawn(move || chassis_loop(&cfg, &cmd, &fb, &run))?);
+        self.thread = Some(
+            thread::Builder::new()
+                .name("hw-chassis".into())
+                .spawn(move || chassis_loop(&cfg, &cmd, &fb, &run))?,
+        );
 
         info!("LimoHwVehicleController started");
         Ok(())
@@ -195,7 +227,9 @@ impl VehicleController for LimoHwVehicleController {
 
     fn stop(&mut self) {
         self.running.store(false, Ordering::Release);
-        if let Some(h) = self.thread.take() { let _ = h.join(); }
+        if let Some(h) = self.thread.take() {
+            let _ = h.join();
+        }
         info!("LimoHwVehicleController stopped");
     }
 
@@ -208,14 +242,19 @@ impl VehicleController for LimoHwVehicleController {
         Some(self.feedback.lock().unwrap().clone())
     }
 
-    fn name(&self) -> &str { "limo_hw" }
+    fn name(&self) -> &str {
+        "limo_hw"
+    }
 }
 
 // ======================== Driver Loops ========================
 // These generate dummy data when hardware isn't available.
 
 fn now_ns() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }
 
 fn camera_loop(cfg: &LimoHwSensorConfig, tx: Sender<CameraFrame>, running: &AtomicBool) {
@@ -230,15 +269,23 @@ fn camera_loop(cfg: &LimoHwSensorConfig, tx: Sender<CameraFrame>, running: &Atom
         let start = Instant::now();
         let mut data = vec![128u8; frame_size];
         let offset = (seq as usize * 3) % 256;
-        for (i, p) in data.iter_mut().enumerate() { *p = ((i + offset) % 256) as u8; }
+        for (i, p) in data.iter_mut().enumerate() {
+            *p = ((i + offset) % 256) as u8;
+        }
 
         let _ = tx.try_send(CameraFrame {
-            timestamp_ns: now_ns(), width: cfg.camera_width, height: cfg.camera_height,
-            encoding: "bgr8".into(), data, sequence: seq,
+            timestamp_ns: now_ns(),
+            width: cfg.camera_width,
+            height: cfg.camera_height,
+            encoding: "bgr8".into(),
+            data,
+            sequence: seq,
         });
         seq += 1;
         let e = start.elapsed();
-        if e < interval { thread::sleep(interval - e); }
+        if e < interval {
+            thread::sleep(interval - e);
+        }
     }
 }
 
@@ -255,21 +302,31 @@ fn lidar_loop(cfg: &LimoHwSensorConfig, tx: Sender<LidarScan>, running: &AtomicB
     while running.load(Ordering::Acquire) {
         let start = Instant::now();
         let t = t0.elapsed().as_secs_f32();
-        let ranges: Vec<f32> = (0..n).map(|i| {
-            let a = i as f32 * ai;
-            let bump = if (a - 1.5).abs() < 0.3 { -2.0 } else { 0.0 };
-            (4.0 + bump + (t * 2.0 + i as f32 * 0.05).sin() * 0.03).max(0.1)
-        }).collect();
+        let ranges: Vec<f32> = (0..n)
+            .map(|i| {
+                let a = i as f32 * ai;
+                let bump = if (a - 1.5).abs() < 0.3 { -2.0 } else { 0.0 };
+                (4.0 + bump + (t * 2.0 + i as f32 * 0.05).sin() * 0.03).max(0.1)
+            })
+            .collect();
         let intensities = vec![200.0f32; n];
 
         let _ = tx.try_send(LidarScan {
-            timestamp_ns: now_ns(), angle_min: 0.0, angle_max: std::f32::consts::TAU,
-            angle_increment: ai, range_min: 0.1, range_max: 12.0,
-            ranges, intensities, sequence: seq,
+            timestamp_ns: now_ns(),
+            angle_min: 0.0,
+            angle_max: std::f32::consts::TAU,
+            angle_increment: ai,
+            range_min: 0.1,
+            range_max: 12.0,
+            ranges,
+            intensities,
+            sequence: seq,
         });
         seq += 1;
         let e = start.elapsed();
-        if e < interval { thread::sleep(interval - e); }
+        if e < interval {
+            thread::sleep(interval - e);
+        }
     }
 }
 
@@ -288,19 +345,27 @@ fn imu_loop(cfg: &LimoHwSensorConfig, tx: Sender<ImuReading>, running: &AtomicBo
         let _ = tx.try_send(ImuReading {
             timestamp_ns: now_ns(),
             linear_acceleration: nalgebra::Vector3::new(
-                0.02 * (t * 5.0).sin(), 0.01 * (t * 7.0).cos(), 9.81 + 0.01 * (t * 3.0).sin(),
+                0.02 * (t * 5.0).sin(),
+                0.01 * (t * 7.0).cos(),
+                9.81 + 0.01 * (t * 3.0).sin(),
             ),
             angular_velocity: nalgebra::Vector3::new(
-                0.001 * (t * 2.0).sin(), 0.001 * (t * 3.0).cos(), 0.0,
+                0.001 * (t * 2.0).sin(),
+                0.001 * (t * 3.0).cos(),
+                0.0,
             ),
             orientation_euler: nalgebra::Vector3::new(
-                0.01 * (t * 0.5).sin(), 0.005 * (t * 0.3).cos(), 0.0,
+                0.01 * (t * 0.5).sin(),
+                0.005 * (t * 0.3).cos(),
+                0.0,
             ),
             sequence: seq,
         });
         seq += 1;
         let e = start.elapsed();
-        if e < interval { thread::sleep(interval - e); }
+        if e < interval {
+            thread::sleep(interval - e);
+        }
     }
 }
 
@@ -333,7 +398,9 @@ fn chassis_loop(
                     }
                 }
                 let e = start.elapsed();
-                if e < interval { thread::sleep(interval - e); }
+                if e < interval {
+                    thread::sleep(interval - e);
+                }
             }
             let _ = port.write_all(&encode_command(&MotorCommand::default()));
         }
@@ -347,15 +414,19 @@ fn chassis_loop(
                 let left_vel = cmd.linear_vel - cmd.angular_vel * track_width / 2.0;
                 let right_vel = cmd.linear_vel + cmd.angular_vel * track_width / 2.0;
                 *feedback.lock().unwrap() = ChassisFeedback {
-                    left_wheel_rpm: (left_vel / (2.0 * std::f64::consts::PI * wheel_radius) * 60.0) as f32,
-                    right_wheel_rpm: (right_vel / (2.0 * std::f64::consts::PI * wheel_radius) * 60.0) as f32,
+                    left_wheel_rpm: (left_vel / (2.0 * std::f64::consts::PI * wheel_radius) * 60.0)
+                        as f32,
+                    right_wheel_rpm: (right_vel / (2.0 * std::f64::consts::PI * wheel_radius)
+                        * 60.0) as f32,
                     steering_angle: (cmd.angular_vel * 0.3) as f32,
                     battery_voltage: 12.4,
                     error_code: 0,
                     timestamp_ns: now_ns(),
                 };
                 let e = start.elapsed();
-                if e < interval { thread::sleep(interval - e); }
+                if e < interval {
+                    thread::sleep(interval - e);
+                }
             }
         }
     }
@@ -366,15 +437,23 @@ fn encode_command(cmd: &MotorCommand) -> Vec<u8> {
     let ang = (cmd.angular_vel * 1000.0) as i16;
     let lb = lin.to_le_bytes();
     let ab = ang.to_le_bytes();
-    let cs = 0x55u8.wrapping_add(0x01).wrapping_add(lb[0]).wrapping_add(lb[1])
-        .wrapping_add(ab[0]).wrapping_add(ab[1]);
+    let cs = 0x55u8
+        .wrapping_add(0x01)
+        .wrapping_add(lb[0])
+        .wrapping_add(lb[1])
+        .wrapping_add(ab[0])
+        .wrapping_add(ab[1]);
     vec![0x55, 0x01, lb[0], lb[1], ab[0], ab[1], cs]
 }
 
 fn decode_feedback(buf: &[u8; 12]) -> Option<ChassisFeedback> {
-    if buf[0] != 0x55 || buf[1] != 0x02 { return None; }
+    if buf[0] != 0x55 || buf[1] != 0x02 {
+        return None;
+    }
     let expected: u8 = buf[0..11].iter().fold(0u8, |a, &b| a.wrapping_add(b));
-    if expected != buf[11] { return None; }
+    if expected != buf[11] {
+        return None;
+    }
     Some(ChassisFeedback {
         left_wheel_rpm: i16::from_le_bytes([buf[2], buf[3]]) as f32,
         right_wheel_rpm: i16::from_le_bytes([buf[4], buf[5]]) as f32,
@@ -385,5 +464,5 @@ fn decode_feedback(buf: &[u8; 12]) -> Option<ChassisFeedback> {
     })
 }
 
-use std::io::Write as IoWrite;
 use std::io::Read as IoRead;
+use std::io::Write as IoWrite;

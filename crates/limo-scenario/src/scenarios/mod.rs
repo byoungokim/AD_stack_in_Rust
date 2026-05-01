@@ -21,21 +21,27 @@ pub struct WaypointDef {
     pub label: String,
 }
 
-fn default_tolerance() -> f32 { 0.15 }
-fn default_speed() -> f32 { 0.5 }
+fn default_tolerance() -> f32 {
+    0.15
+}
+fn default_speed() -> f32 {
+    0.5
+}
 
 /// A scenario definition loadable from YAML.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ScenarioDef {
     pub name: String,
     #[serde(default = "default_scenario_type")]
-    pub scenario_type: String,  // waypoint, sequence, patrol, parking
+    pub scenario_type: String, // waypoint, sequence, patrol, parking
     pub waypoints: Vec<WaypointDef>,
     #[serde(default = "default_speed")]
     pub speed_limit: f32,
 }
 
-fn default_scenario_type() -> String { "sequence".into() }
+fn default_scenario_type() -> String {
+    "sequence".into()
+}
 
 impl ScenarioDef {
     /// Convert to a proto ScenarioCommand.
@@ -50,12 +56,21 @@ impl ScenarioDef {
             _ => limo_proto::ScenarioType::ScenarioWaypointSequence as i32,
         };
 
-        let waypoints: Vec<limo_proto::NavigationGoal> = self.waypoints.iter().enumerate()
+        let waypoints: Vec<limo_proto::NavigationGoal> = self
+            .waypoints
+            .iter()
+            .enumerate()
             .map(|(i, wp)| limo_proto::NavigationGoal {
                 header: Some(limo_proto::Header {
-                    timestamp_ns: 0, sequence: i as u32, frame_id: "world".into(),
+                    timestamp_ns: 0,
+                    sequence: i as u32,
+                    frame_id: "world".into(),
                 }),
-                goal_pose: Some(limo_proto::Pose2D { x: wp.x, y: wp.y, theta: wp.theta }),
+                goal_pose: Some(limo_proto::Pose2D {
+                    x: wp.x,
+                    y: wp.y,
+                    theta: wp.theta,
+                }),
                 goal_tolerance: wp.tolerance,
                 desired_speed: wp.speed,
                 label: if wp.label.is_empty() {
@@ -91,5 +106,7 @@ pub fn load_scenario(path: &str) -> anyhow::Result<ScenarioDef> {
 
 fn now_ns() -> u64 {
     std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }

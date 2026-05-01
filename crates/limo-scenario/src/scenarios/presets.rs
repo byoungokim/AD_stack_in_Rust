@@ -6,12 +6,14 @@ pub fn straight_line() -> ScenarioDef {
     ScenarioDef {
         name: "straight_line".into(),
         scenario_type: "waypoint".into(),
-        waypoints: vec![
-            WaypointDef {
-                x: 3.0, y: 0.0, theta: 0.0,
-                tolerance: 0.15, speed: 0.5, label: "goal".into(),
-            },
-        ],
+        waypoints: vec![WaypointDef {
+            x: 3.0,
+            y: 0.0,
+            theta: 0.0,
+            tolerance: 0.15,
+            speed: 0.5,
+            label: "goal".into(),
+        }],
         speed_limit: 0.5,
     }
 }
@@ -22,10 +24,38 @@ pub fn square_patrol() -> ScenarioDef {
         name: "square_patrol".into(),
         scenario_type: "patrol".into(),
         waypoints: vec![
-            WaypointDef { x: 2.0, y: 0.0, theta: 0.0, tolerance: 0.2, speed: 0.4, label: "A".into() },
-            WaypointDef { x: 2.0, y: 2.0, theta: std::f64::consts::FRAC_PI_2, tolerance: 0.2, speed: 0.4, label: "B".into() },
-            WaypointDef { x: 0.0, y: 2.0, theta: std::f64::consts::PI, tolerance: 0.2, speed: 0.4, label: "C".into() },
-            WaypointDef { x: 0.0, y: 0.0, theta: -std::f64::consts::FRAC_PI_2, tolerance: 0.2, speed: 0.4, label: "D".into() },
+            WaypointDef {
+                x: 2.0,
+                y: 0.0,
+                theta: 0.0,
+                tolerance: 0.2,
+                speed: 0.4,
+                label: "A".into(),
+            },
+            WaypointDef {
+                x: 2.0,
+                y: 2.0,
+                theta: std::f64::consts::FRAC_PI_2,
+                tolerance: 0.2,
+                speed: 0.4,
+                label: "B".into(),
+            },
+            WaypointDef {
+                x: 0.0,
+                y: 2.0,
+                theta: std::f64::consts::PI,
+                tolerance: 0.2,
+                speed: 0.4,
+                label: "C".into(),
+            },
+            WaypointDef {
+                x: 0.0,
+                y: 0.0,
+                theta: -std::f64::consts::FRAC_PI_2,
+                tolerance: 0.2,
+                speed: 0.4,
+                label: "D".into(),
+            },
         ],
         speed_limit: 0.5,
     }
@@ -37,11 +67,46 @@ pub fn slalom() -> ScenarioDef {
         name: "slalom".into(),
         scenario_type: "sequence".into(),
         waypoints: vec![
-            WaypointDef { x: 1.0, y: 0.5, theta: 0.0, tolerance: 0.2, speed: 0.3, label: "s1".into() },
-            WaypointDef { x: 2.0, y: -0.5, theta: 0.0, tolerance: 0.2, speed: 0.3, label: "s2".into() },
-            WaypointDef { x: 3.0, y: 0.5, theta: 0.0, tolerance: 0.2, speed: 0.3, label: "s3".into() },
-            WaypointDef { x: 4.0, y: -0.5, theta: 0.0, tolerance: 0.2, speed: 0.3, label: "s4".into() },
-            WaypointDef { x: 5.0, y: 0.0, theta: 0.0, tolerance: 0.15, speed: 0.3, label: "finish".into() },
+            WaypointDef {
+                x: 1.0,
+                y: 0.5,
+                theta: 0.0,
+                tolerance: 0.2,
+                speed: 0.3,
+                label: "s1".into(),
+            },
+            WaypointDef {
+                x: 2.0,
+                y: -0.5,
+                theta: 0.0,
+                tolerance: 0.2,
+                speed: 0.3,
+                label: "s2".into(),
+            },
+            WaypointDef {
+                x: 3.0,
+                y: 0.5,
+                theta: 0.0,
+                tolerance: 0.2,
+                speed: 0.3,
+                label: "s3".into(),
+            },
+            WaypointDef {
+                x: 4.0,
+                y: -0.5,
+                theta: 0.0,
+                tolerance: 0.2,
+                speed: 0.3,
+                label: "s4".into(),
+            },
+            WaypointDef {
+                x: 5.0,
+                y: 0.0,
+                theta: 0.0,
+                tolerance: 0.15,
+                speed: 0.3,
+                label: "finish".into(),
+            },
         ],
         speed_limit: 0.4,
     }
@@ -53,8 +118,22 @@ pub fn parking() -> ScenarioDef {
         name: "parking".into(),
         scenario_type: "parking".into(),
         waypoints: vec![
-            WaypointDef { x: 3.0, y: 1.0, theta: 0.0, tolerance: 0.3, speed: 0.3, label: "approach".into() },
-            WaypointDef { x: 4.0, y: 1.0, theta: 0.0, tolerance: 0.05, speed: 0.1, label: "park".into() },
+            WaypointDef {
+                x: 3.0,
+                y: 1.0,
+                theta: 0.0,
+                tolerance: 0.3,
+                speed: 0.3,
+                label: "approach".into(),
+            },
+            WaypointDef {
+                x: 4.0,
+                y: 1.0,
+                theta: 0.0,
+                tolerance: 0.05,
+                speed: 0.1,
+                label: "park".into(),
+            },
         ],
         speed_limit: 0.3,
     }
@@ -73,7 +152,8 @@ pub fn figure_eight() -> ScenarioDef {
             x: r * angle.cos(),
             y: r + r * angle.sin(),
             theta: angle + std::f64::consts::FRAC_PI_2,
-            tolerance: 0.3, speed: 0.3,
+            tolerance: 0.3,
+            speed: 0.3,
             label: format!("f8_a_{}", i),
         });
     }
@@ -84,7 +164,8 @@ pub fn figure_eight() -> ScenarioDef {
             x: r * angle.cos(),
             y: -r + r * (-angle).sin(),
             theta: -angle - std::f64::consts::FRAC_PI_2,
-            tolerance: 0.3, speed: 0.3,
+            tolerance: 0.3,
+            speed: 0.3,
             label: format!("f8_b_{}", i),
         });
     }

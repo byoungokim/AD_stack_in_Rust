@@ -32,8 +32,11 @@ fn send_command_publishes_correct_steering_on_ch7() {
     std::thread::sleep(Duration::from_millis(200));
 
     // Case 1: non-zero velocity → Ackermann steering = atan(ω·L / v).
-    ctrl.send_command(&MotorCommand { linear_vel: 1.0, angular_vel: 0.5 })
-        .expect("send_command #1");
+    ctrl.send_command(&MotorCommand {
+        linear_vel: 1.0,
+        angular_vel: 0.5,
+    })
+    .expect("send_command #1");
     let msg1: limo_proto::SimControlCommand = sub
         .recv(Duration::from_secs(2))
         .expect("recv error")
@@ -43,15 +46,19 @@ fn send_command_publishes_correct_steering_on_ch7() {
     assert!(
         (msg1.steering_angle - expected).abs() < 1e-3,
         "wire steering: got {}, expected ≈ {}",
-        msg1.steering_angle, expected
+        msg1.steering_angle,
+        expected
     );
     assert!((msg1.linear_velocity - 1.0).abs() < 1e-6);
     assert!((msg1.angular_velocity - 0.5).abs() < 1e-6);
     assert!(!msg1.emergency_stop);
 
     // Case 2: zero linear velocity → zero steering (no divide-by-zero).
-    ctrl.send_command(&MotorCommand { linear_vel: 0.0, angular_vel: 1.0 })
-        .expect("send_command #2");
+    ctrl.send_command(&MotorCommand {
+        linear_vel: 0.0,
+        angular_vel: 1.0,
+    })
+    .expect("send_command #2");
     let msg2: limo_proto::SimControlCommand = sub
         .recv(Duration::from_secs(2))
         .expect("recv error")
@@ -62,7 +69,12 @@ fn send_command_publishes_correct_steering_on_ch7() {
     // Sequence counter increments between sends.
     let seq1 = msg1.header.as_ref().unwrap().sequence;
     let seq2 = msg2.header.as_ref().unwrap().sequence;
-    assert!(seq2 > seq1, "sequence did not increment: {} → {}", seq1, seq2);
+    assert!(
+        seq2 > seq1,
+        "sequence did not increment: {} → {}",
+        seq1,
+        seq2
+    );
 
     ctrl.stop();
 }

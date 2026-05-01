@@ -6,11 +6,11 @@
 /// When no ONNX model is available, falls back to a no-op detector
 /// that passes through without errors.
 pub mod detector;
-pub mod preprocessing;
 pub mod postprocessing;
+pub mod preprocessing;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tracing::{debug, info, warn};
@@ -31,7 +31,10 @@ pub fn perception_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool, model_pa
             d
         }
         Err(e) => {
-            warn!("Failed to load ONNX model '{}': {}. Using fallback detector.", model_path, e);
+            warn!(
+                "Failed to load ONNX model '{}': {}. Using fallback detector.",
+                model_path, e
+            );
             ObjectDetector::fallback()
         }
     };
@@ -58,9 +61,13 @@ pub fn perception_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool, model_pa
         store.latest_detections.store(detections);
 
         cycle += 1;
-        if cycle % 75 == 0 { // every ~5 seconds
-            debug!("Perception cycle {}: {} detections",
-                   cycle, store.latest_detections.load().map_or(0, |d| d.len()));
+        if cycle.is_multiple_of(75) {
+            // every ~5 seconds
+            debug!(
+                "Perception cycle {}: {} detections",
+                cycle,
+                store.latest_detections.load().map_or(0, |d| d.len())
+            );
         }
 
         let elapsed = cycle_start.elapsed();

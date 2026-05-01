@@ -10,7 +10,7 @@ const GRID_HEIGHT: usize = 200;
 const GRID_RESOLUTION: f64 = 0.1; // meters per cell
 
 // Log-odds parameters
-const LOG_ODD_OCC: i16 = 3;   // increment for occupied
+const LOG_ODD_OCC: i16 = 3; // increment for occupied
 const LOG_ODD_FREE: i16 = -1; // decrement for free
 const LOG_ODD_MIN: i16 = -10;
 const LOG_ODD_MAX: i16 = 50;
@@ -33,6 +33,7 @@ impl GridBuilder {
     /// - Walk cells from robot pose along ray direction
     /// - Mark traversed cells as free (decrement log-odds)
     /// - Mark endpoint cell as occupied (increment log-odds)
+    #[allow(clippy::too_many_arguments)] // Mirrors LiDAR scan parameter set; bundling would just rename the noise.
     pub fn update(
         &mut self,
         robot_x: f64,
@@ -72,14 +73,10 @@ impl GridBuilder {
                 let gx = ((wx - origin_x) / GRID_RESOLUTION) as isize;
                 let gy = ((wy - origin_y) / GRID_RESOLUTION) as isize;
 
-                if gx >= 0 && gy >= 0
-                    && (gx as usize) < GRID_WIDTH
-                    && (gy as usize) < GRID_HEIGHT
-                {
+                if gx >= 0 && gy >= 0 && (gx as usize) < GRID_WIDTH && (gy as usize) < GRID_HEIGHT {
                     let idx = gy as usize * GRID_WIDTH + gx as usize;
                     // Mark as free
-                    self.log_odds[idx] = (self.log_odds[idx] + LOG_ODD_FREE)
-                        .max(LOG_ODD_MIN);
+                    self.log_odds[idx] = (self.log_odds[idx] + LOG_ODD_FREE).max(LOG_ODD_MIN);
                 }
             }
 
@@ -89,13 +86,9 @@ impl GridBuilder {
             let gx = ((ox - origin_x) / GRID_RESOLUTION) as isize;
             let gy = ((oy - origin_y) / GRID_RESOLUTION) as isize;
 
-            if gx >= 0 && gy >= 0
-                && (gx as usize) < GRID_WIDTH
-                && (gy as usize) < GRID_HEIGHT
-            {
+            if gx >= 0 && gy >= 0 && (gx as usize) < GRID_WIDTH && (gy as usize) < GRID_HEIGHT {
                 let idx = gy as usize * GRID_WIDTH + gx as usize;
-                self.log_odds[idx] = (self.log_odds[idx] + LOG_ODD_OCC)
-                    .min(LOG_ODD_MAX);
+                self.log_odds[idx] = (self.log_odds[idx] + LOG_ODD_OCC).min(LOG_ODD_MAX);
             }
         }
     }
@@ -105,9 +98,11 @@ impl GridBuilder {
         let origin_x = robot_x - (GRID_WIDTH as f64 * GRID_RESOLUTION) / 2.0;
         let origin_y = robot_y - (GRID_HEIGHT as f64 * GRID_RESOLUTION) / 2.0;
 
-        let data: Vec<u8> = self.log_odds.iter().map(|&lo| {
-            if lo > LOG_ODD_THRESHOLD { 100 } else { 0 }
-        }).collect();
+        let data: Vec<u8> = self
+            .log_odds
+            .iter()
+            .map(|&lo| if lo > LOG_ODD_THRESHOLD { 100 } else { 0 })
+            .collect();
 
         SlamOccupancyGrid {
             width: GRID_WIDTH,
@@ -129,15 +124,26 @@ mod tests {
         let mut builder = GridBuilder::new();
 
         // Simulate a wall at 3m directly ahead (0 degrees)
-        let ranges: Vec<f32> = (0..360).map(|i| {
-            let angle = i as f32 * std::f32::consts::TAU / 360.0;
-            if angle.abs() < 0.05 { 3.0 } else { 10.0 } // wall at 3m, 0 deg
-        }).collect();
+        let ranges: Vec<f32> = (0..360)
+            .map(|i| {
+                let angle = i as f32 * std::f32::consts::TAU / 360.0;
+                if angle.abs() < 0.05 {
+                    3.0
+                } else {
+                    10.0
+                } // wall at 3m, 0 deg
+            })
+            .collect();
 
         builder.update(
-            0.0, 0.0, 0.0,
-            &ranges, 0.0, std::f32::consts::TAU / 360.0,
-            0.1, 12.0,
+            0.0,
+            0.0,
+            0.0,
+            &ranges,
+            0.0,
+            std::f32::consts::TAU / 360.0,
+            0.1,
+            12.0,
         );
 
         let grid = builder.to_occupancy_grid(0.0, 0.0);
@@ -157,7 +163,10 @@ mod tests {
         let mid_gy = ((0.0 - grid.origin_y) / grid.resolution) as usize;
         if mid_gx < grid.width && mid_gy < grid.height {
             let idx = mid_gy * grid.width + mid_gx;
-            assert_eq!(grid.data[idx], 0, "Cell between robot and wall should be free");
+            assert_eq!(
+                grid.data[idx], 0,
+                "Cell between robot and wall should be free"
+            );
         }
     }
 
@@ -170,16 +179,24 @@ mod tests {
         let ranges = vec![4.0f32; n];
 
         builder.update(
-            0.0, 0.0, 0.0,
-            &ranges, 0.0, std::f32::consts::TAU / n as f32,
-            0.1, 12.0,
+            0.0,
+            0.0,
+            0.0,
+            &ranges,
+            0.0,
+            std::f32::consts::TAU / n as f32,
+            0.1,
+            12.0,
         );
 
         let grid = builder.to_occupancy_grid(0.0, 0.0);
 
         // Count occupied cells — should form a rough circle
         let occ_count = grid.data.iter().filter(|&&v| v == 100).count();
-        assert!(occ_count > 100, "Should have many occupied cells forming circle walls");
+        assert!(
+            occ_count > 100,
+            "Should have many occupied cells forming circle walls"
+        );
         assert!(occ_count < 2000, "Not too many — just the ring");
     }
 }

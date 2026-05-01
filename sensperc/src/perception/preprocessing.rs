@@ -1,10 +1,13 @@
-/// Image preprocessing for YOLO inference.
-///
-/// Converts raw camera frames to the tensor format expected by YOLO:
-/// - Resize to model input size (e.g., 640x640)
-/// - Normalize pixel values to [0, 1]
-/// - Convert HWC → CHW layout
-/// - BGR → RGB color conversion
+//! Image preprocessing for YOLO inference.
+//!
+//! Converts raw camera frames to the tensor format expected by YOLO:
+//! - Resize to model input size (e.g., 640x640)
+//! - Normalize pixel values to [0, 1]
+//! - Convert HWC → CHW layout
+//! - BGR → RGB color conversion
+//!
+//! Stub awaiting model integration; kept dead-code-allowed.
+#![allow(dead_code)]
 
 /// Preprocess a raw image for YOLO inference.
 ///
@@ -37,9 +40,10 @@ pub fn preprocess_image(
                 let r = data[src_idx + 2] as f32 / 255.0;
 
                 // CHW layout: [R plane][G plane][B plane]
-                output[0 * th * tw + ty * tw + tx] = r; // R channel
-                output[1 * th * tw + ty * tw + tx] = g; // G channel
-                output[2 * th * tw + ty * tw + tx] = b; // B channel
+                let plane = th * tw;
+                output[ty * tw + tx] = r; // R channel
+                output[plane + ty * tw + tx] = g; // G channel
+                output[2 * plane + ty * tw + tx] = b; // B channel
             }
         }
     }

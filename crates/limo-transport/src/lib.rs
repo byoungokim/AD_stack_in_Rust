@@ -1,3 +1,5 @@
+pub mod channels;
+pub mod heartbeat;
 /// Limo Drive ZMQ transport layer.
 ///
 /// Provides type-safe ZMQ PUB/SUB wrappers that serialize/deserialize
@@ -13,10 +15,8 @@
 /// - CH5-CH7 (tcp:5560-5562): Isaac Sim bridge
 pub mod publisher;
 pub mod subscriber;
-pub mod channels;
-pub mod heartbeat;
 
-pub use publisher::Publisher;
-pub use subscriber::Subscriber;
 pub use channels::{Channel, ChannelConfig};
 pub use heartbeat::{HeartbeatManager, PeerHealth, PeerStatus};
+pub use publisher::Publisher;
+pub use subscriber::Subscriber;

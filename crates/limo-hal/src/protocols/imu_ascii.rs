@@ -40,7 +40,8 @@ pub fn parse_imu_csv_line(
     }
     let mut nums = [0.0f64; 9];
     for (i, f) in fields.iter().enumerate() {
-        nums[i] = f.trim()
+        nums[i] = f
+            .trim()
             .parse::<f64>()
             .map_err(|_| ImuParseError::NonNumeric(i))?;
     }
@@ -62,22 +63,31 @@ pub struct ImuLineBuffer {
 }
 
 impl Default for ImuLineBuffer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ImuLineBuffer {
-    pub fn new() -> Self { Self::with_max_len(256) }
+    pub fn new() -> Self {
+        Self::with_max_len(256)
+    }
 
     /// Bound the buffer so a sensor stuck mid-line can't grow memory unbounded.
     pub fn with_max_len(max_len: usize) -> Self {
-        Self { buf: String::with_capacity(64), max_len }
+        Self {
+            buf: String::with_capacity(64),
+            max_len,
+        }
     }
 
     /// Push one byte. Returns Some(line) on terminator, None while buffering.
     pub fn push(&mut self, byte: u8) -> Option<String> {
         match byte {
             b'\r' | b'\n' => {
-                if self.buf.is_empty() { return None; }
+                if self.buf.is_empty() {
+                    return None;
+                }
                 Some(std::mem::take(&mut self.buf))
             }
             _ => {

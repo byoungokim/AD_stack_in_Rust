@@ -38,11 +38,21 @@ pub struct KinematicsConfig {
     pub max_steering_angle: f64, // radians
 }
 
-fn default_mode() -> String { "ackermann".into() }
-fn default_wheelbase() -> f64 { 0.2 }
-fn default_track_width() -> f64 { 0.172 }
-fn default_wheel_radius() -> f64 { 0.045 }
-fn default_max_steering() -> f64 { 0.48 }
+fn default_mode() -> String {
+    "ackermann".into()
+}
+fn default_wheelbase() -> f64 {
+    0.2
+}
+fn default_track_width() -> f64 {
+    0.172
+}
+fn default_wheel_radius() -> f64 {
+    0.045
+}
+fn default_max_steering() -> f64 {
+    0.48
+}
 
 impl Default for KinematicsConfig {
     fn default() -> Self {
@@ -68,13 +78,22 @@ impl KinematicsConfig {
             ));
         }
         if !(self.wheelbase > 0.0 && self.wheelbase.is_finite()) {
-            return Err(format!("kinematics.wheelbase must be > 0, got {}", self.wheelbase));
+            return Err(format!(
+                "kinematics.wheelbase must be > 0, got {}",
+                self.wheelbase
+            ));
         }
         if !(self.track_width > 0.0 && self.track_width.is_finite()) {
-            return Err(format!("kinematics.track_width must be > 0, got {}", self.track_width));
+            return Err(format!(
+                "kinematics.track_width must be > 0, got {}",
+                self.track_width
+            ));
         }
         if !(self.wheel_radius > 0.0 && self.wheel_radius.is_finite()) {
-            return Err(format!("kinematics.wheel_radius must be > 0, got {}", self.wheel_radius));
+            return Err(format!(
+                "kinematics.wheel_radius must be > 0, got {}",
+                self.wheel_radius
+            ));
         }
         let max_valid = std::f64::consts::FRAC_PI_2;
         if !(self.max_steering_angle > 0.0 && self.max_steering_angle < max_valid) {
@@ -141,7 +160,10 @@ impl KinematicsEngine {
             return 0.0;
         }
         let steering = (cmd.angular_vel * self.config.wheelbase / cmd.linear_vel).atan();
-        steering.clamp(-self.config.max_steering_angle, self.config.max_steering_angle)
+        steering.clamp(
+            -self.config.max_steering_angle,
+            self.config.max_steering_angle,
+        )
     }
 
     /// Update odometry from wheel feedback.
@@ -292,19 +314,28 @@ mod tests {
 
     #[test]
     fn validate_rejects_unknown_mode() {
-        let cfg = KinematicsConfig { mode: "omni".into(), ..KinematicsConfig::default() };
+        let cfg = KinematicsConfig {
+            mode: "omni".into(),
+            ..KinematicsConfig::default()
+        };
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn validate_rejects_zero_wheelbase() {
-        let cfg = KinematicsConfig { wheelbase: 0.0, ..KinematicsConfig::default() };
+        let cfg = KinematicsConfig {
+            wheelbase: 0.0,
+            ..KinematicsConfig::default()
+        };
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn validate_rejects_negative_wheel_radius() {
-        let cfg = KinematicsConfig { wheel_radius: -0.01, ..KinematicsConfig::default() };
+        let cfg = KinematicsConfig {
+            wheel_radius: -0.01,
+            ..KinematicsConfig::default()
+        };
         assert!(cfg.validate().is_err());
     }
 

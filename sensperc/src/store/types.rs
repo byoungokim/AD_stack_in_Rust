@@ -53,7 +53,7 @@ pub struct Pose2D {
 pub struct Twist2D {
     pub linear_x: f64,  // m/s
     pub linear_y: f64,  // m/s
-    pub angular_z: f64,  // rad/s
+    pub angular_z: f64, // rad/s
 }
 
 /// Fused sensor state from EKF.
@@ -69,10 +69,10 @@ pub struct FusedState {
 /// SLAM-generated occupancy grid (local map).
 #[derive(Clone)]
 pub struct SlamOccupancyGrid {
-    pub width: usize,       // cells
-    pub height: usize,      // cells
-    pub resolution: f64,    // meters per cell
-    pub origin_x: f64,      // world x of cell (0,0)
-    pub origin_y: f64,      // world y of cell (0,0)
-    pub data: Vec<u8>,      // row-major, 0=free, 100=occupied
+    pub width: usize,    // cells
+    pub height: usize,   // cells
+    pub resolution: f64, // meters per cell
+    pub origin_x: f64,   // world x of cell (0,0)
+    pub origin_y: f64,   // world y of cell (0,0)
+    pub data: Vec<u8>,   // row-major, 0=free, 100=occupied
 }

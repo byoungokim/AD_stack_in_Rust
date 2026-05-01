@@ -7,7 +7,7 @@ use crate::kinematics::KinematicsConfig;
 use crate::tracker::TrackerConfig;
 use crate::watchdog::WatchdogConfig;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ControlConfig {
     #[serde(default)]
     pub tracker: TrackerConfig,
@@ -31,8 +31,12 @@ pub struct TransportConfig {
     pub ch3_endpoint: String,
 }
 
-fn default_ch2_endpoint() -> String { "tcp://localhost:5552".into() }
-fn default_ch3_endpoint() -> String { "tcp://*:5553".into() }
+fn default_ch2_endpoint() -> String {
+    "tcp://localhost:5552".into()
+}
+fn default_ch3_endpoint() -> String {
+    "tcp://*:5553".into()
+}
 
 impl Default for TransportConfig {
     fn default() -> Self {
@@ -49,23 +53,14 @@ pub struct StatePublisherConfig {
     pub rate_hz: u32,
 }
 
-fn default_rate_hz() -> u32 { 20 }
+fn default_rate_hz() -> u32 {
+    20
+}
 
 impl Default for StatePublisherConfig {
     fn default() -> Self {
-        Self { rate_hz: default_rate_hz() }
-    }
-}
-
-impl Default for ControlConfig {
-    fn default() -> Self {
         Self {
-            tracker: TrackerConfig::default(),
-            kinematics: KinematicsConfig::default(),
-            watchdog: WatchdogConfig::default(),
-            transport: TransportConfig::default(),
-            state_publisher: StatePublisherConfig::default(),
-            sim_faults: SimFaultConfig::default(),
+            rate_hz: default_rate_hz(),
         }
     }
 }

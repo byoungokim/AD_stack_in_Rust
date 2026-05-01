@@ -1,3 +1,7 @@
+pub mod dummy;
+pub mod limo_hw;
+pub mod protocols;
+pub mod sim_zmq;
 /// Limo Drive Hardware Abstraction Layer.
 ///
 /// Defines traits that abstract sensor input and vehicle control,
@@ -15,10 +19,6 @@
 /// };
 /// ```
 pub mod types;
-pub mod limo_hw;
-pub mod sim_zmq;
-pub mod dummy;
-pub mod protocols;
 
 pub use types::*;
 
@@ -58,10 +58,14 @@ pub trait SensorSource: Send {
 
     /// Number of errors encountered since start. Consumers can monitor
     /// this to detect hardware faults (increasing count = degraded).
-    fn error_count(&self) -> u64 { 0 }
+    fn error_count(&self) -> u64 {
+        0
+    }
 
     /// Whether the source is healthy (receiving data without errors).
-    fn is_healthy(&self) -> bool { true }
+    fn is_healthy(&self) -> bool {
+        true
+    }
 }
 
 /// Vehicle controller trait.
@@ -86,8 +90,12 @@ pub trait VehicleController: Send {
     fn name(&self) -> &str;
 
     /// Number of send/recv errors since start.
-    fn error_count(&self) -> u64 { 0 }
+    fn error_count(&self) -> u64 {
+        0
+    }
 
     /// Whether the controller is healthy (hardware responsive).
-    fn is_healthy(&self) -> bool { true }
+    fn is_healthy(&self) -> bool {
+        true
+    }
 }

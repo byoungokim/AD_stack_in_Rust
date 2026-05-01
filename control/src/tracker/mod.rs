@@ -1,13 +1,17 @@
-/// Trajectory tracker: converts a planned trajectory or velocity command
-/// into a motor command for the chassis.
-///
-/// Supports two algorithms:
-/// - Pure Pursuit: geometric path tracking with lookahead distance
-/// - Stanley: heading + cross-track error controller
+//! Trajectory tracker: converts a planned trajectory or velocity command
+//! into a motor command for the chassis.
+//!
+//! Supports two algorithms:
+//! - Pure Pursuit: geometric path tracking with lookahead distance
+//! - Stanley: heading + cross-track error controller
+//!
+//! Stub awaiting wiring from `main.rs`; kept dead-code-allowed.
+#![allow(dead_code)]
+
 use serde::Deserialize;
 
-use limo_hal::MotorCommand;
 use crate::kinematics::OdomPose;
+use limo_hal::MotorCommand;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TrackerConfig {
@@ -21,8 +25,12 @@ pub struct TrackerConfig {
     pub stanley: StanleyConfig,
 }
 
-fn default_algorithm() -> String { "pure_pursuit".into() }
-fn default_rate_hz() -> u32 { 10 }
+fn default_algorithm() -> String {
+    "pure_pursuit".into()
+}
+fn default_rate_hz() -> u32 {
+    10
+}
 
 impl Default for TrackerConfig {
     fn default() -> Self {
@@ -45,9 +53,15 @@ pub struct PurePursuitConfig {
     pub max_lookahead: f64,
 }
 
-fn default_lookahead() -> f64 { 0.5 }
-fn default_min_lookahead() -> f64 { 0.2 }
-fn default_max_lookahead() -> f64 { 1.5 }
+fn default_lookahead() -> f64 {
+    0.5
+}
+fn default_min_lookahead() -> f64 {
+    0.2
+}
+fn default_max_lookahead() -> f64 {
+    1.5
+}
 
 impl Default for PurePursuitConfig {
     fn default() -> Self {
@@ -67,8 +81,12 @@ pub struct StanleyConfig {
     pub k_soft: f64,
 }
 
-fn default_k_gain() -> f64 { 0.5 }
-fn default_k_soft() -> f64 { 1.0 }
+fn default_k_gain() -> f64 {
+    0.5
+}
+fn default_k_soft() -> f64 {
+    1.0
+}
 
 impl Default for StanleyConfig {
     fn default() -> Self {
@@ -84,8 +102,8 @@ impl Default for StanleyConfig {
 pub struct TrajectoryPoint {
     pub x: f64,
     pub y: f64,
-    pub heading: f64,   // radians
-    pub speed: f64,     // m/s
+    pub heading: f64, // radians
+    pub speed: f64,   // m/s
 }
 
 pub struct TrajectoryTracker {
@@ -266,7 +284,11 @@ mod tests {
         let mut tracker = TrajectoryTracker::new(TrackerConfig::default(), 0.2);
         tracker.set_trajectory(make_straight_trajectory());
 
-        let pose = OdomPose { x: 0.0, y: 0.0, theta: 0.0 };
+        let pose = OdomPose {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+        };
         let cmd = tracker.compute(&pose).unwrap();
 
         assert!(cmd.linear_vel > 0.0);
@@ -279,7 +301,11 @@ mod tests {
         tracker.set_trajectory(make_straight_trajectory());
 
         // Robot is offset to the left
-        let pose = OdomPose { x: 0.0, y: 0.3, theta: 0.0 };
+        let pose = OdomPose {
+            x: 0.0,
+            y: 0.3,
+            theta: 0.0,
+        };
         let cmd = tracker.compute(&pose).unwrap();
 
         // Should steer right (negative angular for positive y offset)

@@ -27,19 +27,20 @@ impl Subscriber {
     /// * `endpoint` - Connect endpoint, e.g., "tcp://localhost:5553"
     /// * `topic` - Topic filter, e.g., "vehicle_state"
     pub fn connect(ctx: &zmq::Context, endpoint: &str, topic: &str) -> Result<Self> {
-        let socket = ctx.socket(zmq::SUB)
+        let socket = ctx
+            .socket(zmq::SUB)
             .context("Failed to create SUB socket")?;
 
-        socket.set_rcvhwm(100)
-            .context("Failed to set RCVHWM")?;
+        socket.set_rcvhwm(100).context("Failed to set RCVHWM")?;
 
-        socket.set_linger(0)
-            .context("Failed to set linger")?;
+        socket.set_linger(0).context("Failed to set linger")?;
 
-        socket.connect(endpoint)
+        socket
+            .connect(endpoint)
             .context(format!("Failed to connect SUB socket to {}", endpoint))?;
 
-        socket.set_subscribe(topic.as_bytes())
+        socket
+            .set_subscribe(topic.as_bytes())
             .context(format!("Failed to subscribe to topic '{}'", topic))?;
 
         info!("Subscriber connected: {} [topic='{}']", endpoint, topic);
@@ -57,7 +58,8 @@ impl Subscriber {
     /// Blocks up to `timeout` waiting for a message. Deserializes the
     /// Protobuf payload into type `M`.
     pub fn recv<M: Message + Default>(&mut self, timeout: Duration) -> Result<Option<M>> {
-        self.socket.set_rcvtimeo(timeout.as_millis() as i32)
+        self.socket
+            .set_rcvtimeo(timeout.as_millis() as i32)
             .context("Failed to set RCVTIMEO")?;
 
         // Receive topic frame
@@ -69,14 +71,15 @@ impl Subscriber {
         }
 
         // Receive data frame
-        let data = self.socket.recv_bytes(0)
+        let data = self
+            .socket
+            .recv_bytes(0)
             .context("Failed to receive data frame")?;
 
-        let msg = M::decode(data.as_slice())
-            .context("Failed to decode Protobuf message")?;
+        let msg = M::decode(data.as_slice()).context("Failed to decode Protobuf message")?;
 
         self.msg_count += 1;
-        if self.msg_count % 1000 == 0 {
+        if self.msg_count.is_multiple_of(1000) {
             debug!(
                 "Subscriber [{}] received {} messages on '{}'",
                 self.endpoint, self.msg_count, self.topic
@@ -88,16 +91,20 @@ impl Subscriber {
 
     /// Receive a message, blocking indefinitely.
     pub fn recv_blocking<M: Message + Default>(&mut self) -> Result<M> {
-        self.socket.set_rcvtimeo(-1)
+        self.socket
+            .set_rcvtimeo(-1)
             .context("Failed to set RCVTIMEO")?;
 
-        let _topic = self.socket.recv_bytes(0)
+        let _topic = self
+            .socket
+            .recv_bytes(0)
             .context("Failed to receive topic frame")?;
-        let data = self.socket.recv_bytes(0)
+        let data = self
+            .socket
+            .recv_bytes(0)
             .context("Failed to receive data frame")?;
 
-        let msg = M::decode(data.as_slice())
-            .context("Failed to decode Protobuf message")?;
+        let msg = M::decode(data.as_slice()).context("Failed to decode Protobuf message")?;
 
         self.msg_count += 1;
         Ok(msg)
@@ -128,12 +135,7 @@ impl<M: Message + Default + Send + 'static> BackgroundSubscriber<M> {
     /// Messages are delivered via the returned receiver. The channel has
     /// a bounded capacity; oldest messages are dropped if the consumer
     /// is too slow.
-    pub fn start(
-        ctx: &zmq::Context,
-        endpoint: &str,
-        topic: &str,
-        capacity: usize,
-    ) -> Result<Self> {
+    pub fn start(ctx: &zmq::Context, endpoint: &str, topic: &str, capacity: usize) -> Result<Self> {
         let (tx, rx): (Sender<M>, Receiver<M>) = crossbeam_channel::bounded(capacity);
 
         let mut sub = Subscriber::connect(ctx, endpoint, topic)?;
@@ -155,10 +157,7 @@ impl<M: Message + Default + Send + 'static> BackgroundSubscriber<M> {
                             }
                         }
                         Ok(None) => {
-                            // Timeout, check if channel is still alive
-                            if tx.is_empty() && tx.len() == 0 {
-                                // Check if receiver is dropped
-                            }
+                            // Timeout — keep polling.
                             continue;
                         }
                         Err(e) => {

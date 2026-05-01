@@ -7,7 +7,7 @@ use crate::e2e::E2EConfig;
 use crate::global_planner::HybridAStarConfig;
 use crate::local_planner::LocalPlannerConfig;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PlanningConfig {
     #[serde(default)]
     pub behavior: BehaviorConfig,
@@ -33,9 +33,15 @@ pub struct TransportConfig {
     pub ch3_endpoint: String, // subscribe VehicleState
 }
 
-fn default_ch1_endpoint() -> String { "tcp://localhost:5551".into() }
-fn default_ch2_endpoint() -> String { "tcp://*:5552".into() }
-fn default_ch3_endpoint() -> String { "tcp://localhost:5553".into() }
+fn default_ch1_endpoint() -> String {
+    "tcp://localhost:5551".into()
+}
+fn default_ch2_endpoint() -> String {
+    "tcp://*:5552".into()
+}
+fn default_ch3_endpoint() -> String {
+    "tcp://localhost:5553".into()
+}
 
 impl Default for TransportConfig {
     fn default() -> Self {
@@ -43,19 +49,6 @@ impl Default for TransportConfig {
             ch1_endpoint: default_ch1_endpoint(),
             ch2_endpoint: default_ch2_endpoint(),
             ch3_endpoint: default_ch3_endpoint(),
-        }
-    }
-}
-
-impl Default for PlanningConfig {
-    fn default() -> Self {
-        Self {
-            behavior: BehaviorConfig::default(),
-            global_planner: HybridAStarConfig::default(),
-            local_planner: LocalPlannerConfig::default(),
-            arbitrator: ArbitratorConfig::default(),
-            e2e: E2EConfig::default(),
-            transport: TransportConfig::default(),
         }
     }
 }

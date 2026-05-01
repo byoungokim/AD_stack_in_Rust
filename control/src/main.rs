@@ -25,10 +25,10 @@ use kinematics::KinematicsEngine;
 use tracker::TrajectoryTracker;
 use watchdog::Watchdog;
 
-use limo_hal::{MotorCommand, VehicleController};
-use limo_hal::limo_hw::{LimoHwVehicleController, LimoHwControlConfig};
-use limo_hal::sim_zmq::{SimAckermannConfig, SimZmqVehicleController};
 use limo_hal::dummy::DummyVehicleController;
+use limo_hal::limo_hw::{LimoHwControlConfig, LimoHwVehicleController};
+use limo_hal::sim_zmq::{SimAckermannConfig, SimZmqVehicleController};
+use limo_hal::{MotorCommand, VehicleController};
 use limo_transport::{Channel, HeartbeatManager, Publisher, Subscriber};
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -36,8 +36,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
@@ -47,7 +46,10 @@ fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "config/control.yaml".into());
     let config = load_config(&config_path).unwrap_or_else(|e| {
-        warn!("Failed to load config from '{}': {}, using defaults", config_path, e);
+        warn!(
+            "Failed to load config from '{}': {}, using defaults",
+            config_path, e
+        );
         ControlConfig::default()
     });
 
@@ -55,14 +57,16 @@ fn main() -> Result<()> {
         anyhow::bail!("Invalid control config: {}", e);
     }
 
-    let sim_mode = std::env::args().any(|a| a == "--sim")
-        || std::env::var("LIMO_SIM").map_or(false, |v| v == "1");
+    let sim_mode =
+        std::env::args().any(|a| a == "--sim") || std::env::var("LIMO_SIM").is_ok_and(|v| v == "1");
     let dummy_mode = std::env::args().any(|a| a == "--dummy");
 
     info!(
         "Config: tracker={} {}Hz, kinematics={}, state_pub={}Hz",
-        config.tracker.algorithm, config.tracker.rate_hz,
-        config.kinematics.mode, config.state_publisher.rate_hz,
+        config.tracker.algorithm,
+        config.tracker.rate_hz,
+        config.kinematics.mode,
+        config.state_publisher.rate_hz,
     );
 
     ctrlc_handler();
@@ -71,13 +75,20 @@ fn main() -> Result<()> {
     let zmq_ctx = zmq::Context::new();
 
     let mut ch3_pub = Publisher::bind(
-        &zmq_ctx, &config.transport.ch3_endpoint, Channel::VehicleState.topic(),
+        &zmq_ctx,
+        &config.transport.ch3_endpoint,
+        Channel::VehicleState.topic(),
     )?;
     let mut ch2_sub = Subscriber::connect(
-        &zmq_ctx, &config.transport.ch2_endpoint, Channel::ControlCommand.topic(),
+        &zmq_ctx,
+        &config.transport.ch2_endpoint,
+        Channel::ControlCommand.topic(),
     )?;
 
-    info!("ZMQ: pub CH3={}, sub CH2={}", config.transport.ch3_endpoint, config.transport.ch2_endpoint);
+    info!(
+        "ZMQ: pub CH3={}, sub CH2={}",
+        config.transport.ch3_endpoint, config.transport.ch2_endpoint
+    );
 
     // --- Select vehicle controller via HAL ---
     let mut controller: Box<dyn VehicleController> = if sim_mode {
@@ -110,12 +121,8 @@ fn main() -> Result<()> {
     // Initialize components
     let estop_active = Arc::new(AtomicBool::new(false));
     let mut kinematics = KinematicsEngine::new(config.kinematics.clone());
-    let _tracker = TrajectoryTracker::new(
-        config.tracker.clone(), config.kinematics.wheelbase,
-    );
-    let mut watchdog_monitor = Watchdog::new(
-        config.watchdog.clone(), Arc::clone(&estop_active),
-    );
+    let _tracker = TrajectoryTracker::new(config.tracker.clone(), config.kinematics.wheelbase);
+    let mut watchdog_monitor = Watchdog::new(config.watchdog.clone(), Arc::clone(&estop_active));
 
     // Start heartbeat
     let mut heartbeat = HeartbeatManager::start("control")?;
@@ -138,7 +145,9 @@ fn main() -> Result<()> {
                 watchdog_monitor.notify_command_received();
                 if cmd.emergency_stop {
                     watchdog_monitor.trigger_estop(watchdog::EstopReason::ExplicitRequest);
-                } else if let Some(limo_proto::control_command::Command::VelocityCmd(twist)) = cmd.command {
+                } else if let Some(limo_proto::control_command::Command::VelocityCmd(twist)) =
+                    cmd.command
+                {
                     let motor = MotorCommand {
                         linear_vel: twist.linear_x,
                         angular_vel: twist.angular_z,
@@ -148,7 +157,9 @@ fn main() -> Result<()> {
                 }
             }
             Ok(None) => {}
-            Err(e) => { debug!("CH2 recv error: {:#}", e); }
+            Err(e) => {
+                debug!("CH2 recv error: {:#}", e);
+            }
         }
 
         // --- 2. Feed heartbeat status into watchdog ---
@@ -168,9 +179,8 @@ fn main() -> Result<()> {
 
         // --- 4. Read feedback from controller and update odometry ---
         let feedback = controller.recv_feedback().unwrap_or_default();
-        let (odom_pose, odom_vel) = kinematics.update_odometry(
-            &kinematics::to_kinematics_feedback(&feedback), dt,
-        );
+        let (odom_pose, odom_vel) =
+            kinematics.update_odometry(&kinematics::to_kinematics_feedback(&feedback), dt);
 
         watchdog_monitor.update_speed(odom_vel.linear_x);
 
@@ -178,7 +188,8 @@ fn main() -> Result<()> {
         if estop_active.load(Ordering::Acquire) {
             let decel_vel = watchdog_monitor.deceleration_velocity(dt);
             let _ = controller.send_command(&MotorCommand {
-                linear_vel: decel_vel, angular_vel: 0.0,
+                linear_vel: decel_vel,
+                angular_vel: 0.0,
             });
         }
 
@@ -186,14 +197,18 @@ fn main() -> Result<()> {
         if last_state_pub.elapsed() >= state_pub_interval {
             let vehicle_state = limo_proto::VehicleState {
                 header: Some(limo_proto::Header {
-                    timestamp_ns: now_ns(), sequence: cycle as u32,
+                    timestamp_ns: now_ns(),
+                    sequence: cycle as u32,
                     frame_id: "odom".into(),
                 }),
                 odometry_pose: Some(limo_proto::Pose2D {
-                    x: odom_pose.x, y: odom_pose.y, theta: odom_pose.theta,
+                    x: odom_pose.x,
+                    y: odom_pose.y,
+                    theta: odom_pose.theta,
                 }),
                 odometry_velocity: Some(limo_proto::Twist2D {
-                    linear_x: odom_vel.linear_x, linear_y: 0.0,
+                    linear_x: odom_vel.linear_x,
+                    linear_y: 0.0,
                     angular_z: odom_vel.angular_z,
                 }),
                 steering_angle: feedback.steering_angle,
@@ -214,7 +229,7 @@ fn main() -> Result<()> {
 
         // --- Logging ---
         cycle += 1;
-        if cycle % (control_rate as u64 * 5) == 0 {
+        if cycle.is_multiple_of(control_rate as u64 * 5) {
             info!(
                 "Control cycle {}: pose=({:.2}, {:.2}, {:.1}°) vel={:.2} m/s bat={:.1}V estop={} ch3={}",
                 cycle, odom_pose.x, odom_pose.y, odom_pose.theta.to_degrees(),
@@ -224,7 +239,9 @@ fn main() -> Result<()> {
         }
 
         let elapsed = cycle_start.elapsed();
-        if elapsed < interval { thread::sleep(interval - elapsed); }
+        if elapsed < interval {
+            thread::sleep(interval - elapsed);
+        }
     }
 
     // Shutdown
@@ -240,7 +257,9 @@ fn main() -> Result<()> {
 
 fn now_ns() -> u64 {
     std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }
 
 fn ctrlc_handler() {
