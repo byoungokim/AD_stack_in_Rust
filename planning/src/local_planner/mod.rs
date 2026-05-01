@@ -14,8 +14,8 @@ use crate::global_planner::PathWaypoint;
 #[derive(Debug, Clone, Default)]
 pub struct VelocityCommand {
     pub linear_x: f64,   // m/s
-    pub angular_z: f64,   // rad/s
-    pub confidence: f32,  // [0.0, 1.0]
+    pub angular_z: f64,  // rad/s
+    pub confidence: f32, // [0.0, 1.0]
 }
 
 /// Pose along a predicted trajectory.
@@ -65,8 +65,12 @@ pub struct LocalPlannerConfig {
     pub mpc_trigger_curvature: f64, // use MPC when path curvature exceeds this
 }
 
-fn default_rate_hz() -> u32 { 10 }
-fn default_mpc_trigger_curvature() -> f64 { 1.5 } // 1/m
+fn default_rate_hz() -> u32 {
+    10
+}
+fn default_mpc_trigger_curvature() -> f64 {
+    1.5
+} // 1/m
 
 impl Default for LocalPlannerConfig {
     fn default() -> Self {
@@ -116,9 +120,11 @@ impl LocalPlanner {
         self.use_mpc = self.should_use_mpc(state, path);
 
         let command = if self.use_mpc {
-            self.mpc_planner.compute(state, path, obstacles, desired_speed)
+            self.mpc_planner
+                .compute(state, path, obstacles, desired_speed)
         } else {
-            self.dwa_planner.compute(state, path, obstacles, desired_speed)
+            self.dwa_planner
+                .compute(state, path, obstacles, desired_speed)
         };
 
         let trajectory = rollout(
@@ -128,7 +134,10 @@ impl LocalPlanner {
             self.config.dwa.sim_dt,
         );
 
-        LocalPlan { command, trajectory }
+        LocalPlan {
+            command,
+            trajectory,
+        }
     }
 
     /// Check if MPC should be used (tight curvature ahead).
@@ -137,9 +146,8 @@ impl LocalPlanner {
         let lookahead = 5.min(path.len());
         for i in 1..lookahead {
             let dtheta = (path[i].theta - path[i - 1].theta).abs();
-            let dist = ((path[i].x - path[i - 1].x).powi(2)
-                + (path[i].y - path[i - 1].y).powi(2))
-            .sqrt();
+            let dist =
+                ((path[i].x - path[i - 1].x).powi(2) + (path[i].y - path[i - 1].y).powi(2)).sqrt();
 
             if dist > 0.01 {
                 let curvature = dtheta / dist;
@@ -183,8 +191,18 @@ mod tests {
 
     #[test]
     fn rollout_straight_line_advances_along_x() {
-        let state = RobotState { x: 0.0, y: 0.0, theta: 0.0, linear_vel: 0.0, angular_vel: 0.0 };
-        let cmd = VelocityCommand { linear_x: 0.5, angular_z: 0.0, confidence: 0.9 };
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.0,
+            angular_vel: 0.0,
+        };
+        let cmd = VelocityCommand {
+            linear_x: 0.5,
+            angular_z: 0.0,
+            confidence: 0.9,
+        };
         let traj = rollout(&state, &cmd, 1.0, 0.1);
         assert_eq!(traj.len(), 10);
         // After 1s at 0.5 m/s, x should be ~0.5.
@@ -196,8 +214,18 @@ mod tests {
 
     #[test]
     fn rollout_pure_rotation_keeps_position() {
-        let state = RobotState { x: 1.0, y: 2.0, theta: 0.0, linear_vel: 0.0, angular_vel: 0.0 };
-        let cmd = VelocityCommand { linear_x: 0.0, angular_z: 1.0, confidence: 0.9 };
+        let state = RobotState {
+            x: 1.0,
+            y: 2.0,
+            theta: 0.0,
+            linear_vel: 0.0,
+            angular_vel: 0.0,
+        };
+        let cmd = VelocityCommand {
+            linear_x: 0.0,
+            angular_z: 1.0,
+            confidence: 0.9,
+        };
         let traj = rollout(&state, &cmd, 1.0, 0.1);
         let last = traj.last().unwrap();
         assert!((last.x - 1.0).abs() < 1e-9);
@@ -208,7 +236,11 @@ mod tests {
     #[test]
     fn rollout_empty_horizon_is_empty() {
         let state = RobotState::default();
-        let cmd = VelocityCommand { linear_x: 1.0, angular_z: 0.0, confidence: 0.9 };
+        let cmd = VelocityCommand {
+            linear_x: 1.0,
+            angular_z: 0.0,
+            confidence: 0.9,
+        };
         assert!(rollout(&state, &cmd, 0.0, 0.1).is_empty());
     }
 }

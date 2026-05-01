@@ -54,8 +54,9 @@ impl<T: Clone> AtomicSlot<T> {
     }
 
     /// Check if a value has been stored.
+    #[allow(dead_code)] // Inspection helper for tests / future status.
     pub fn has_value(&self) -> bool {
-        self.inner.read().ok().map_or(false, |g| g.value.is_some())
+        self.inner.read().is_ok_and(|g| g.value.is_some())
     }
 
     /// Age of the stored value in seconds. Returns INFINITY if unset or lock poisoned.

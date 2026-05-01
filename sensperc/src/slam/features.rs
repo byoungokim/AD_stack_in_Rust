@@ -31,17 +31,21 @@ pub fn scan_to_points(
     range_min: f32,
     range_max: f32,
 ) -> Vec<Vector2<f64>> {
-    ranges.iter().enumerate().filter_map(|(i, &r)| {
-        if r >= range_min && r <= range_max {
-            let angle = angle_min + i as f32 * angle_increment;
-            Some(Vector2::new(
-                r as f64 * (angle as f64).cos(),
-                r as f64 * (angle as f64).sin(),
-            ))
-        } else {
-            None
-        }
-    }).collect()
+    ranges
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &r)| {
+            if r >= range_min && r <= range_max {
+                let angle = angle_min + i as f32 * angle_increment;
+                Some(Vector2::new(
+                    r as f64 * (angle as f64).cos(),
+                    r as f64 * (angle as f64).sin(),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Extract line segments from Cartesian points using split-and-merge.
@@ -87,12 +91,12 @@ fn split_and_merge(
     let mut max_dist = 0.0;
     let mut max_idx = start;
 
-    for i in (start + 1)..end {
-        let diff = points[i] - line_start;
+    for (offset, point) in points[(start + 1)..end].iter().enumerate() {
+        let diff = point - line_start;
         let dist = diff.dot(&line_normal).abs();
         if dist > max_dist {
             max_dist = dist;
-            max_idx = i;
+            max_idx = start + 1 + offset;
         }
     }
 
@@ -131,9 +135,9 @@ fn merge_segments(segments: &mut Vec<LineSegment>, angle_threshold: f64, gap_thr
             current.end = next.end;
             current.length = (current.end - current.start).norm();
             current.point_count += next.point_count;
-            current.angle = (current.end - current.start).y.atan2(
-                (current.end - current.start).x,
-            );
+            current.angle = (current.end - current.start)
+                .y
+                .atan2((current.end - current.start).x);
         } else {
             merged.push(current);
             current = next.clone();
@@ -178,8 +182,12 @@ pub fn extract_corners(segments: &[LineSegment], min_angle: f64) -> Vec<Corner> 
 
 fn normalize_angle(a: f64) -> f64 {
     let mut v = a;
-    while v > std::f64::consts::PI { v -= 2.0 * std::f64::consts::PI; }
-    while v < -std::f64::consts::PI { v += 2.0 * std::f64::consts::PI; }
+    while v > std::f64::consts::PI {
+        v -= 2.0 * std::f64::consts::PI;
+    }
+    while v < -std::f64::consts::PI {
+        v += 2.0 * std::f64::consts::PI;
+    }
     v
 }
 
@@ -200,9 +208,8 @@ mod tests {
     #[test]
     fn test_extract_lines_straight_wall() {
         // Points along a straight wall at y=2
-        let points: Vec<Vector2<f64>> = (0..20)
-            .map(|i| Vector2::new(i as f64 * 0.1, 2.0))
-            .collect();
+        let points: Vec<Vector2<f64>> =
+            (0..20).map(|i| Vector2::new(i as f64 * 0.1, 2.0)).collect();
 
         let lines = extract_lines(&points, 0.05);
         assert_eq!(lines.len(), 1, "Should fit one line segment");
@@ -212,13 +219,15 @@ mod tests {
     #[test]
     fn test_extract_lines_corner() {
         // L-shaped points: wall along x then wall along y
-        let mut points: Vec<Vector2<f64>> = (0..10)
-            .map(|i| Vector2::new(i as f64 * 0.2, 0.0))
-            .collect();
+        let mut points: Vec<Vector2<f64>> =
+            (0..10).map(|i| Vector2::new(i as f64 * 0.2, 0.0)).collect();
         points.extend((1..10).map(|i| Vector2::new(1.8, i as f64 * 0.2)));
 
         let lines = extract_lines(&points, 0.05);
-        assert!(lines.len() >= 2, "Should find at least 2 segments for L-shape");
+        assert!(
+            lines.len() >= 2,
+            "Should find at least 2 segments for L-shape"
+        );
     }
 
     #[test]
@@ -227,12 +236,16 @@ mod tests {
             LineSegment {
                 start: Vector2::new(0.0, 0.0),
                 end: Vector2::new(1.0, 0.0),
-                angle: 0.0, length: 1.0, point_count: 10,
+                angle: 0.0,
+                length: 1.0,
+                point_count: 10,
             },
             LineSegment {
                 start: Vector2::new(1.0, 0.0),
                 end: Vector2::new(1.0, 1.0),
-                angle: std::f64::consts::FRAC_PI_2, length: 1.0, point_count: 10,
+                angle: std::f64::consts::FRAC_PI_2,
+                length: 1.0,
+                point_count: 10,
             },
         ];
 

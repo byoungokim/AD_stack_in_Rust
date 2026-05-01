@@ -9,6 +9,7 @@ use crate::local_planner::VelocityCommand;
 
 /// Pipeline mode (matches proto PipelineMode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // E2E + Shadow wired via config; not yet selected at runtime.
 pub enum PipelineMode {
     Traditional,
     E2E,
@@ -31,9 +32,15 @@ pub struct ArbitratorConfig {
     pub fallback_min_confidence: f32,
 }
 
-fn default_rate_hz() -> u32 { 10 }
-fn default_e2e_confidence_threshold() -> f32 { 0.7 }
-fn default_fallback_min_confidence() -> f32 { 0.3 }
+fn default_rate_hz() -> u32 {
+    10
+}
+fn default_e2e_confidence_threshold() -> f32 {
+    0.7
+}
+fn default_fallback_min_confidence() -> f32 {
+    0.3
+}
 
 impl Default for ArbitratorConfig {
     fn default() -> Self {
@@ -49,22 +56,32 @@ impl Default for ArbitratorConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SafetyEnvelopeConfig {
     #[serde(default = "default_max_speed")]
-    pub max_speed: f64,           // m/s
+    pub max_speed: f64, // m/s
     #[serde(default = "default_max_accel")]
-    pub max_acceleration: f64,    // m/s^2
+    pub max_acceleration: f64, // m/s^2
     #[serde(default = "default_max_decel")]
-    pub max_deceleration: f64,    // m/s^2
+    pub max_deceleration: f64, // m/s^2
     #[serde(default = "default_max_angular")]
-    pub max_angular_speed: f64,   // rad/s
+    pub max_angular_speed: f64, // rad/s
     #[serde(default = "default_max_curvature")]
-    pub max_curvature: f64,       // 1/m
+    pub max_curvature: f64, // 1/m
 }
 
-fn default_max_speed() -> f64 { 1.0 }
-fn default_max_accel() -> f64 { 0.5 }
-fn default_max_decel() -> f64 { 1.0 }
-fn default_max_angular() -> f64 { 1.5 }
-fn default_max_curvature() -> f64 { 2.0 }
+fn default_max_speed() -> f64 {
+    1.0
+}
+fn default_max_accel() -> f64 {
+    0.5
+}
+fn default_max_decel() -> f64 {
+    1.0
+}
+fn default_max_angular() -> f64 {
+    1.5
+}
+fn default_max_curvature() -> f64 {
+    2.0
+}
 
 impl Default for SafetyEnvelopeConfig {
     fn default() -> Self {
@@ -84,19 +101,34 @@ impl SafetyEnvelopeConfig {
     /// means "anti-accelerate"). Fail loudly at startup.
     pub fn validate(&self) -> Result<(), String> {
         if !(self.max_speed > 0.0 && self.max_speed.is_finite()) {
-            return Err(format!("safety.max_speed must be > 0, got {}", self.max_speed));
+            return Err(format!(
+                "safety.max_speed must be > 0, got {}",
+                self.max_speed
+            ));
         }
         if !(self.max_acceleration > 0.0 && self.max_acceleration.is_finite()) {
-            return Err(format!("safety.max_acceleration must be > 0, got {}", self.max_acceleration));
+            return Err(format!(
+                "safety.max_acceleration must be > 0, got {}",
+                self.max_acceleration
+            ));
         }
         if !(self.max_deceleration > 0.0 && self.max_deceleration.is_finite()) {
-            return Err(format!("safety.max_deceleration must be > 0, got {}", self.max_deceleration));
+            return Err(format!(
+                "safety.max_deceleration must be > 0, got {}",
+                self.max_deceleration
+            ));
         }
         if !(self.max_angular_speed > 0.0 && self.max_angular_speed.is_finite()) {
-            return Err(format!("safety.max_angular_speed must be > 0, got {}", self.max_angular_speed));
+            return Err(format!(
+                "safety.max_angular_speed must be > 0, got {}",
+                self.max_angular_speed
+            ));
         }
         if !(self.max_curvature > 0.0 && self.max_curvature.is_finite()) {
-            return Err(format!("safety.max_curvature must be > 0, got {}", self.max_curvature));
+            return Err(format!(
+                "safety.max_curvature must be > 0, got {}",
+                self.max_curvature
+            ));
         }
         Ok(())
     }
@@ -176,6 +208,7 @@ impl Arbitrator {
         }
     }
 
+    #[allow(dead_code)] // Public knob for runtime mode swap; not yet wired to config reload.
     pub fn set_mode(&mut self, mode: PipelineMode) {
         self.mode = mode;
     }
@@ -208,8 +241,8 @@ impl Arbitrator {
             PipelineMode::Traditional => (traditional.clone(), PipelineMode::Traditional),
 
             PipelineMode::E2E => {
-                let e2e_usable = e2e
-                    .filter(|c| c.confidence >= self.config.e2e_confidence_threshold);
+                let e2e_usable =
+                    e2e.filter(|c| c.confidence >= self.config.e2e_confidence_threshold);
                 match e2e_usable {
                     Some(c) => (c.clone(), PipelineMode::E2E),
                     None => {
@@ -260,7 +293,9 @@ impl Arbitrator {
         let mut clipped = false;
 
         // Clamp speed
-        let mut v = cmd.linear_x.clamp(-self.config.safety.max_speed, self.config.safety.max_speed);
+        let mut v = cmd
+            .linear_x
+            .clamp(-self.config.safety.max_speed, self.config.safety.max_speed);
         if v != cmd.linear_x {
             clipped = true;
         }
@@ -313,7 +348,11 @@ mod tests {
     #[test]
     fn test_safety_clamp_speed() {
         let mut arb = Arbitrator::new(ArbitratorConfig::default());
-        let cmd = VelocityCommand { linear_x: 5.0, angular_z: 0.0, confidence: 0.9 };
+        let cmd = VelocityCommand {
+            linear_x: 5.0,
+            angular_z: 0.0,
+            confidence: 0.9,
+        };
 
         let out = arb.arbitrate(&cmd, None, 0.1);
         assert!(out.command.linear_x <= 1.0);
@@ -326,7 +365,11 @@ mod tests {
         arb.prev_linear = 0.0;
 
         // Try to jump from 0 to 1 m/s in 0.1s (needs 10 m/s^2, limit is 0.5)
-        let cmd = VelocityCommand { linear_x: 1.0, angular_z: 0.0, confidence: 0.9 };
+        let cmd = VelocityCommand {
+            linear_x: 1.0,
+            angular_z: 0.0,
+            confidence: 0.9,
+        };
         let out = arb.arbitrate(&cmd, None, 0.1);
 
         assert!(out.command.linear_x <= 0.05 + 1e-6); // max_accel * dt = 0.5 * 0.1
@@ -338,8 +381,16 @@ mod tests {
         let mut arb = Arbitrator::new(ArbitratorConfig::default());
         arb.set_mode(PipelineMode::E2E);
 
-        let traditional = VelocityCommand { linear_x: 0.5, angular_z: 0.1, confidence: 0.9 };
-        let e2e = VelocityCommand { linear_x: 0.8, angular_z: 0.2, confidence: 0.3 }; // low
+        let traditional = VelocityCommand {
+            linear_x: 0.5,
+            angular_z: 0.1,
+            confidence: 0.9,
+        };
+        let e2e = VelocityCommand {
+            linear_x: 0.8,
+            angular_z: 0.2,
+            confidence: 0.3,
+        }; // low
 
         let out = arb.arbitrate(&traditional, Some(&e2e), 0.1);
         assert_eq!(out.source, PipelineMode::Traditional); // should fallback
@@ -350,8 +401,16 @@ mod tests {
         let mut arb = Arbitrator::new(ArbitratorConfig::default());
         arb.set_mode(PipelineMode::E2E);
 
-        let traditional = VelocityCommand { linear_x: 0.3, angular_z: 0.0, confidence: 0.9 };
-        let e2e = VelocityCommand { linear_x: 0.4, angular_z: 0.1, confidence: 0.95 };
+        let traditional = VelocityCommand {
+            linear_x: 0.3,
+            angular_z: 0.0,
+            confidence: 0.9,
+        };
+        let e2e = VelocityCommand {
+            linear_x: 0.4,
+            angular_z: 0.1,
+            confidence: 0.95,
+        };
 
         let out = arb.arbitrate(&traditional, Some(&e2e), 0.1);
         assert_eq!(out.source, PipelineMode::E2E);
@@ -371,8 +430,16 @@ mod tests {
         let mut arb = Arbitrator::new(ArbitratorConfig::default());
         arb.set_mode(PipelineMode::E2E);
 
-        let traditional = VelocityCommand { linear_x: 0.5, angular_z: 0.1, confidence: 0.2 };
-        let e2e = VelocityCommand { linear_x: 0.8, angular_z: 0.2, confidence: 0.3 };
+        let traditional = VelocityCommand {
+            linear_x: 0.5,
+            angular_z: 0.1,
+            confidence: 0.2,
+        };
+        let e2e = VelocityCommand {
+            linear_x: 0.8,
+            angular_z: 0.2,
+            confidence: 0.3,
+        };
 
         let out = arb.arbitrate(&traditional, Some(&e2e), 0.1);
         assert!(out.emergency_stop);
@@ -385,7 +452,11 @@ mod tests {
         let mut arb = Arbitrator::new(ArbitratorConfig::default());
         arb.set_mode(PipelineMode::E2E);
 
-        let traditional = VelocityCommand { linear_x: 0.5, angular_z: 0.1, confidence: 0.1 };
+        let traditional = VelocityCommand {
+            linear_x: 0.5,
+            angular_z: 0.1,
+            confidence: 0.1,
+        };
         let out = arb.arbitrate(&traditional, None, 0.1);
         assert!(out.emergency_stop);
     }
@@ -413,19 +484,30 @@ mod tests {
     #[test]
     fn encode_shadow_mode_maps_to_traditional_source_on_wire() {
         let out = ArbitratorOutput {
-            command: VelocityCommand { linear_x: 0.3, angular_z: 0.1, confidence: 0.9 },
+            command: VelocityCommand {
+                linear_x: 0.3,
+                angular_z: 0.1,
+                confidence: 0.9,
+            },
             source: PipelineMode::Shadow,
             emergency_stop: false,
             safety_clipped: false,
         };
         let wire = encode_control_command(&out, 0, 0);
-        assert_eq!(wire.source, limo_proto::PipelineSource::SourceTraditional as i32);
+        assert_eq!(
+            wire.source,
+            limo_proto::PipelineSource::SourceTraditional as i32
+        );
     }
 
     #[test]
     fn encode_e2e_mode_maps_to_e2e_source_on_wire() {
         let out = ArbitratorOutput {
-            command: VelocityCommand { linear_x: 0.4, angular_z: 0.0, confidence: 0.95 },
+            command: VelocityCommand {
+                linear_x: 0.4,
+                angular_z: 0.0,
+                confidence: 0.95,
+            },
             source: PipelineMode::E2E,
             emergency_stop: false,
             safety_clipped: false,
@@ -438,21 +520,33 @@ mod tests {
 
     #[test]
     fn validate_rejects_nonpositive_max_speed() {
-        let cfg = SafetyEnvelopeConfig { max_speed: 0.0, ..Default::default() };
+        let cfg = SafetyEnvelopeConfig {
+            max_speed: 0.0,
+            ..Default::default()
+        };
         assert!(cfg.validate().is_err());
-        let cfg = SafetyEnvelopeConfig { max_speed: -1.0, ..Default::default() };
+        let cfg = SafetyEnvelopeConfig {
+            max_speed: -1.0,
+            ..Default::default()
+        };
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn validate_rejects_nonpositive_acceleration() {
-        let cfg = SafetyEnvelopeConfig { max_acceleration: 0.0, ..Default::default() };
+        let cfg = SafetyEnvelopeConfig {
+            max_acceleration: 0.0,
+            ..Default::default()
+        };
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn validate_rejects_nan_curvature() {
-        let cfg = SafetyEnvelopeConfig { max_curvature: f64::NAN, ..Default::default() };
+        let cfg = SafetyEnvelopeConfig {
+            max_curvature: f64::NAN,
+            ..Default::default()
+        };
         assert!(cfg.validate().is_err());
     }
 
@@ -464,16 +558,26 @@ mod tests {
 
     #[test]
     fn validate_rejects_confidence_out_of_range() {
-        let cfg = ArbitratorConfig { e2e_confidence_threshold: 1.5, ..Default::default() };
+        let cfg = ArbitratorConfig {
+            e2e_confidence_threshold: 1.5,
+            ..Default::default()
+        };
         assert!(cfg.validate().is_err());
-        let cfg = ArbitratorConfig { fallback_min_confidence: -0.1, ..Default::default() };
+        let cfg = ArbitratorConfig {
+            fallback_min_confidence: -0.1,
+            ..Default::default()
+        };
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn encode_preserves_confidence_and_velocity() {
         let out = ArbitratorOutput {
-            command: VelocityCommand { linear_x: 0.6, angular_z: -0.2, confidence: 0.8 },
+            command: VelocityCommand {
+                linear_x: 0.6,
+                angular_z: -0.2,
+                confidence: 0.8,
+            },
             source: PipelineMode::Traditional,
             emergency_stop: false,
             safety_clipped: false,
@@ -495,8 +599,16 @@ mod tests {
         let mut arb = Arbitrator::new(ArbitratorConfig::default());
         arb.set_mode(PipelineMode::Shadow);
 
-        let traditional = VelocityCommand { linear_x: 0.3, angular_z: 0.0, confidence: 0.9 };
-        let e2e = VelocityCommand { linear_x: 0.8, angular_z: 0.5, confidence: 0.95 };
+        let traditional = VelocityCommand {
+            linear_x: 0.3,
+            angular_z: 0.0,
+            confidence: 0.9,
+        };
+        let e2e = VelocityCommand {
+            linear_x: 0.8,
+            angular_z: 0.5,
+            confidence: 0.95,
+        };
 
         let out = arb.arbitrate(&traditional, Some(&e2e), 0.1);
         // Safety envelope may clip acceleration; check source + that e2e did not flow through.

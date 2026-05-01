@@ -27,9 +27,15 @@ pub struct WatchdogConfig {
     pub heartbeat_dead_ms: u64,
 }
 
-fn default_command_timeout_ms() -> u64 { 200 }
-fn default_deceleration_rate() -> f64 { 0.5 }
-fn default_heartbeat_dead_ms() -> u64 { 1000 }
+fn default_command_timeout_ms() -> u64 {
+    200
+}
+fn default_deceleration_rate() -> f64 {
+    0.5
+}
+fn default_heartbeat_dead_ms() -> u64 {
+    1000
+}
 
 impl Default for WatchdogConfig {
     fn default() -> Self {

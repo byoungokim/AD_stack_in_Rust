@@ -1,8 +1,8 @@
-/// Channel definitions and configuration.
-///
-/// Encodes the 8-channel architecture:
-/// - CH0-CH4: Core inter-process channels
-/// - CH5-CH7: Isaac Sim bridge channels (sim mode only)
+//! Channel definitions and configuration.
+//!
+//! Encodes the 8-channel architecture:
+//! - CH0-CH4: Core inter-process channels
+//! - CH5-CH7: Isaac Sim bridge channels (sim mode only)
 
 /// Logical channel identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -100,10 +100,7 @@ impl Channel {
 
     /// Whether this channel is part of the scenario layer.
     pub fn is_scenario_channel(&self) -> bool {
-        matches!(
-            self,
-            Channel::ScenarioCommand | Channel::ScenarioStatus
-        )
+        matches!(self, Channel::ScenarioCommand | Channel::ScenarioStatus)
     }
 }
 

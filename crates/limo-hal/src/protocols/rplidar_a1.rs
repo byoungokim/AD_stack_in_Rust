@@ -73,11 +73,18 @@ pub struct RplidarFrameBuffer {
 }
 
 impl Default for RplidarFrameBuffer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RplidarFrameBuffer {
-    pub fn new() -> Self { Self { buf: [0; 5], len: 0 } }
+    pub fn new() -> Self {
+        Self {
+            buf: [0; 5],
+            len: 0,
+        }
+    }
 
     /// Push one byte. Returns Some(sample) on a successful parse, None while
     /// buffering or on a parse failure (which triggers a 1-byte resync).
@@ -199,7 +206,9 @@ mod tests {
         }
         // Push up to 4 more bytes if needed for full resync.
         for _ in 0..4 {
-            if emitted.is_some() { break; }
+            if emitted.is_some() {
+                break;
+            }
             emitted = fb.push(good[good.len() - 1]);
         }
         let s = emitted.expect("framer should resync within 5 bytes");

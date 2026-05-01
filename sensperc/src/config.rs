@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use limo_hal::sim_zmq::SimFaultConfig;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct SensPercConfig {
     #[serde(default)]
     pub aggregator: AggregatorConfig,
@@ -20,23 +20,18 @@ pub struct AggregatorConfig {
     pub ch1_endpoint: String,
 }
 
-fn default_rate_hz() -> u32 { 10 }
-fn default_ch1_endpoint() -> String { "tcp://*:5551".into() }
+fn default_rate_hz() -> u32 {
+    10
+}
+fn default_ch1_endpoint() -> String {
+    "tcp://*:5551".into()
+}
 
 impl Default for AggregatorConfig {
     fn default() -> Self {
         Self {
             rate_hz: default_rate_hz(),
             ch1_endpoint: default_ch1_endpoint(),
-        }
-    }
-}
-
-impl Default for SensPercConfig {
-    fn default() -> Self {
-        Self {
-            aggregator: AggregatorConfig::default(),
-            sim_faults: SimFaultConfig::default(),
         }
     }
 }

@@ -11,9 +11,9 @@ use crate::global_planner::PathWaypoint;
 #[derive(Debug, Clone, Deserialize)]
 pub struct MpcConfig {
     #[serde(default = "default_horizon")]
-    pub horizon: usize,           // number of prediction steps
+    pub horizon: usize, // number of prediction steps
     #[serde(default = "default_dt")]
-    pub dt: f64,                  // seconds per step
+    pub dt: f64, // seconds per step
     #[serde(default = "default_max_speed")]
     pub max_speed: f64,
     #[serde(default = "default_max_angular")]
@@ -23,7 +23,7 @@ pub struct MpcConfig {
     #[serde(default = "default_max_steering")]
     pub max_steering_angle: f64,
     #[serde(default = "default_iterations")]
-    pub iterations: usize,        // optimization iterations
+    pub iterations: usize, // optimization iterations
     #[serde(default = "default_robot_radius")]
     pub robot_radius: f64,
 
@@ -40,19 +40,45 @@ pub struct MpcConfig {
     pub weight_obstacle: f64,
 }
 
-fn default_horizon() -> usize { 5 }
-fn default_dt() -> f64 { 0.2 }
-fn default_max_speed() -> f64 { 1.0 }
-fn default_max_angular() -> f64 { 1.5 }
-fn default_wheelbase() -> f64 { 0.2 }
-fn default_max_steering() -> f64 { 0.48 }
-fn default_iterations() -> usize { 10 }
-fn default_robot_radius() -> f64 { 0.2 }
-fn default_w_pos() -> f64 { 5.0 }
-fn default_w_heading() -> f64 { 2.0 }
-fn default_w_velocity() -> f64 { 1.0 }
-fn default_w_steer_rate() -> f64 { 3.0 }
-fn default_w_obstacle() -> f64 { 10.0 }
+fn default_horizon() -> usize {
+    5
+}
+fn default_dt() -> f64 {
+    0.2
+}
+fn default_max_speed() -> f64 {
+    1.0
+}
+fn default_max_angular() -> f64 {
+    1.5
+}
+fn default_wheelbase() -> f64 {
+    0.2
+}
+fn default_max_steering() -> f64 {
+    0.48
+}
+fn default_iterations() -> usize {
+    10
+}
+fn default_robot_radius() -> f64 {
+    0.2
+}
+fn default_w_pos() -> f64 {
+    5.0
+}
+fn default_w_heading() -> f64 {
+    2.0
+}
+fn default_w_velocity() -> f64 {
+    1.0
+}
+fn default_w_steer_rate() -> f64 {
+    3.0
+}
+fn default_w_obstacle() -> f64 {
+    10.0
+}
 
 impl Default for MpcConfig {
     fn default() -> Self {
@@ -77,8 +103,8 @@ impl Default for MpcConfig {
 /// Control input for one MPC step.
 #[derive(Debug, Clone)]
 struct ControlInput {
-    velocity: f64,   // m/s
-    steering: f64,   // radians
+    velocity: f64, // m/s
+    steering: f64, // radians
 }
 
 pub struct SimpleMpc {
@@ -91,7 +117,13 @@ impl SimpleMpc {
         let horizon = config.horizon;
         Self {
             config,
-            prev_controls: vec![ControlInput { velocity: 0.0, steering: 0.0 }; horizon],
+            prev_controls: vec![
+                ControlInput {
+                    velocity: 0.0,
+                    steering: 0.0
+                };
+                horizon
+            ],
         }
     }
 
@@ -110,9 +142,13 @@ impl SimpleMpc {
         // Warm-start: shift previous solution
         let mut controls = self.prev_controls.clone();
         controls.rotate_left(1);
-        let fill = controls.get(controls.len().saturating_sub(2))
+        let fill = controls
+            .get(controls.len().saturating_sub(2))
             .cloned()
-            .unwrap_or(ControlInput { velocity: target_speed, steering: 0.0 });
+            .unwrap_or(ControlInput {
+                velocity: target_speed,
+                steering: 0.0,
+            });
         if let Some(last) = controls.last_mut() {
             *last = fill;
         }
@@ -128,10 +164,11 @@ impl SimpleMpc {
                 let v_perturb = (fastrand() - 0.5) * 0.1;
                 let s_perturb = (fastrand() - 0.5) * 0.1;
 
-                ctrl.velocity = (ctrl.velocity + v_perturb)
-                    .clamp(0.0, target_speed);
-                ctrl.steering = (ctrl.steering + s_perturb)
-                    .clamp(-self.config.max_steering_angle, self.config.max_steering_angle);
+                ctrl.velocity = (ctrl.velocity + v_perturb).clamp(0.0, target_speed);
+                ctrl.steering = (ctrl.steering + s_perturb).clamp(
+                    -self.config.max_steering_angle,
+                    self.config.max_steering_angle,
+                );
             }
 
             let cost = self.evaluate_cost(state, &candidate, &refs, obstacles);
@@ -150,7 +187,10 @@ impl SimpleMpc {
 
         VelocityCommand {
             linear_x: first_vel,
-            angular_z: angular_z.clamp(-self.config.max_angular_speed, self.config.max_angular_speed),
+            angular_z: angular_z.clamp(
+                -self.config.max_angular_speed,
+                self.config.max_angular_speed,
+            ),
             confidence: (1.0 - best_cost / 100.0).clamp(0.1, 1.0) as f32,
         }
     }
@@ -262,7 +302,7 @@ impl SimpleMpc {
 fn fastrand() -> f64 {
     use std::cell::Cell;
     thread_local! {
-        static STATE: Cell<u32> = Cell::new(12345);
+        static STATE: Cell<u32> = const { Cell::new(12345) };
     }
     STATE.with(|s| {
         let mut x = s.get();
@@ -276,8 +316,12 @@ fn fastrand() -> f64 {
 
 fn normalize_angle(angle: f64) -> f64 {
     let mut a = angle;
-    while a > std::f64::consts::PI { a -= 2.0 * std::f64::consts::PI; }
-    while a < -std::f64::consts::PI { a += 2.0 * std::f64::consts::PI; }
+    while a > std::f64::consts::PI {
+        a -= 2.0 * std::f64::consts::PI;
+    }
+    while a < -std::f64::consts::PI {
+        a += 2.0 * std::f64::consts::PI;
+    }
     a
 }
 
@@ -288,12 +332,38 @@ mod tests {
     #[test]
     fn test_mpc_straight() {
         let mut mpc = SimpleMpc::new(MpcConfig::default());
-        let state = RobotState { x: 0.0, y: 0.0, theta: 0.0, linear_vel: 0.3, angular_vel: 0.0 };
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
         let path = vec![
-            PathWaypoint { x: 0.5, y: 0.0, theta: 0.0, steering: 0.0 },
-            PathWaypoint { x: 1.0, y: 0.0, theta: 0.0, steering: 0.0 },
-            PathWaypoint { x: 1.5, y: 0.0, theta: 0.0, steering: 0.0 },
-            PathWaypoint { x: 2.0, y: 0.0, theta: 0.0, steering: 0.0 },
+            PathWaypoint {
+                x: 0.5,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+            },
+            PathWaypoint {
+                x: 1.0,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+            },
+            PathWaypoint {
+                x: 1.5,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+            },
+            PathWaypoint {
+                x: 2.0,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+            },
         ];
 
         let cmd = mpc.compute(&state, &path, &[], 0.5);
@@ -303,10 +373,19 @@ mod tests {
     #[test]
     fn test_mpc_obstacle_penalty() {
         let mut mpc = SimpleMpc::new(MpcConfig::default());
-        let state = RobotState { x: 0.0, y: 0.0, theta: 0.0, linear_vel: 0.3, angular_vel: 0.0 };
-        let path = vec![
-            PathWaypoint { x: 1.0, y: 0.0, theta: 0.0, steering: 0.0 },
-        ];
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 1.0,
+            y: 0.0,
+            theta: 0.0,
+            steering: 0.0,
+        }];
         let obstacles = vec![Obstacle { x: 0.3, y: 0.0 }];
 
         let cmd = mpc.compute(&state, &path, &obstacles, 0.5);

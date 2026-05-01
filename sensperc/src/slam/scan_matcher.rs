@@ -12,13 +12,19 @@ pub struct MatchResult {
     pub dx: f64,
     pub dy: f64,
     pub dtheta: f64,
-    pub confidence: f32,   // [0.0, 1.0] based on match quality
+    pub confidence: f32, // [0.0, 1.0] based on match quality
     pub num_matches: usize,
 }
 
 impl Default for MatchResult {
     fn default() -> Self {
-        Self { dx: 0.0, dy: 0.0, dtheta: 0.0, confidence: 0.0, num_matches: 0 }
+        Self {
+            dx: 0.0,
+            dy: 0.0,
+            dtheta: 0.0,
+            confidence: 0.0,
+            num_matches: 0,
+        }
     }
 }
 
@@ -89,15 +95,18 @@ pub fn match_scans(
     // Confidence based on number and quality of matches
     let confidence = ((num_matches as f32) / (curr_lines.len().max(1) as f32)).min(1.0) * 0.8;
 
-    MatchResult { dx, dy, dtheta, confidence, num_matches }
+    MatchResult {
+        dx,
+        dy,
+        dtheta,
+        confidence,
+        num_matches,
+    }
 }
 
 /// Compute rigid transform (R, t) that maps src points to dst points.
 /// Uses SVD decomposition: dst = R * src + t
-fn compute_rigid_transform(
-    src: &[Vector2<f64>],
-    dst: &[Vector2<f64>],
-) -> (f64, f64, f64) {
+fn compute_rigid_transform(src: &[Vector2<f64>], dst: &[Vector2<f64>]) -> (f64, f64, f64) {
     if src.len() != dst.len() || src.len() < 2 {
         return (0.0, 0.0, 0.0);
     }
@@ -142,8 +151,12 @@ fn compute_rigid_transform(
 
 fn normalize_angle(a: f64) -> f64 {
     let mut v = a;
-    while v > std::f64::consts::PI { v -= 2.0 * std::f64::consts::PI; }
-    while v < -std::f64::consts::PI { v += 2.0 * std::f64::consts::PI; }
+    while v > std::f64::consts::PI {
+        v -= 2.0 * std::f64::consts::PI;
+    }
+    while v < -std::f64::consts::PI {
+        v += 2.0 * std::f64::consts::PI;
+    }
     v
 }
 
@@ -155,7 +168,8 @@ mod tests {
         let start = Vector2::new(x_start, y);
         let end = Vector2::new(x_end, y);
         LineSegment {
-            start, end,
+            start,
+            end,
             angle: 0.0,
             length: (end - start).norm(),
             point_count: 10,
@@ -164,10 +178,7 @@ mod tests {
 
     #[test]
     fn test_match_identical_scans() {
-        let lines = vec![
-            make_wall(0.0, 2.0, 3.0),
-            make_wall(0.0, 2.0, -3.0),
-        ];
+        let lines = vec![make_wall(0.0, 2.0, 3.0), make_wall(0.0, 2.0, -3.0)];
 
         let result = match_scans(&lines, &lines, 0.3, 2.0);
         assert!(result.dx.abs() < 0.01);
@@ -178,15 +189,9 @@ mod tests {
 
     #[test]
     fn test_match_translated_scan() {
-        let prev = vec![
-            make_wall(0.0, 2.0, 3.0),
-            make_wall(0.0, 2.0, -3.0),
-        ];
+        let prev = vec![make_wall(0.0, 2.0, 3.0), make_wall(0.0, 2.0, -3.0)];
         // Shift current scan by (0.5, 0) — robot moved forward 0.5m
-        let curr = vec![
-            make_wall(0.5, 2.5, 3.0),
-            make_wall(0.5, 2.5, -3.0),
-        ];
+        let curr = vec![make_wall(0.5, 2.5, 3.0), make_wall(0.5, 2.5, -3.0)];
 
         let result = match_scans(&prev, &curr, 0.3, 2.0);
         // The transform should detect ~0.5m shift

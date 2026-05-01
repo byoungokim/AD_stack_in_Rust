@@ -25,8 +25,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
@@ -41,7 +40,10 @@ fn main() -> Result<()> {
     }
 
     let scenario = if let Some(pos) = args.iter().position(|a| a == "--preset") {
-        let name = args.get(pos + 1).map(|s| s.as_str()).unwrap_or("straight_line");
+        let name = args
+            .get(pos + 1)
+            .map(|s| s.as_str())
+            .unwrap_or("straight_line");
         match name {
             "straight_line" => presets::straight_line(),
             "square_patrol" => presets::square_patrol(),
@@ -57,14 +59,28 @@ fn main() -> Result<()> {
         let path = args.get(pos + 1).expect("--file requires a path");
         scenarios::load_scenario(path)?
     } else if let Some(pos) = args.iter().position(|a| a == "--goal") {
-        let x: f64 = args.get(pos + 1).expect("--goal requires x y theta").parse()?;
-        let y: f64 = args.get(pos + 2).expect("--goal requires x y theta").parse()?;
-        let theta: f64 = args.get(pos + 3).expect("--goal requires x y theta").parse()?;
+        let x: f64 = args
+            .get(pos + 1)
+            .expect("--goal requires x y theta")
+            .parse()?;
+        let y: f64 = args
+            .get(pos + 2)
+            .expect("--goal requires x y theta")
+            .parse()?;
+        let theta: f64 = args
+            .get(pos + 3)
+            .expect("--goal requires x y theta")
+            .parse()?;
         scenarios::ScenarioDef {
             name: "single_goal".into(),
             scenario_type: "waypoint".into(),
             waypoints: vec![scenarios::WaypointDef {
-                x, y, theta, tolerance: 0.15, speed: 0.5, label: "goal".into(),
+                x,
+                y,
+                theta,
+                tolerance: 0.15,
+                speed: 0.5,
+                label: "goal".into(),
             }],
             speed_limit: 0.5,
         }
@@ -81,14 +97,22 @@ fn main() -> Result<()> {
 
     info!(
         "Scenario: '{}' (type={}, {} waypoints, speed_limit={:.1} m/s)",
-        scenario.name, scenario.scenario_type,
-        scenario.waypoints.len(), scenario.speed_limit
+        scenario.name,
+        scenario.scenario_type,
+        scenario.waypoints.len(),
+        scenario.speed_limit
     );
 
     for (i, wp) in scenario.waypoints.iter().enumerate() {
         info!(
             "  wp[{}] '{}': ({:.2}, {:.2}, {:.1}°) tol={:.2}m speed={:.1}m/s",
-            i, wp.label, wp.x, wp.y, wp.theta.to_degrees(), wp.tolerance, wp.speed
+            i,
+            wp.label,
+            wp.x,
+            wp.y,
+            wp.theta.to_degrees(),
+            wp.tolerance,
+            wp.speed
         );
     }
 
@@ -144,8 +168,11 @@ fn main() -> Result<()> {
                 }
 
                 if status.scenario_complete {
-                    info!("Scenario '{}' completed in {:.1}s!",
-                          scenario.name, start.elapsed().as_secs_f64());
+                    info!(
+                        "Scenario '{}' completed in {:.1}s!",
+                        scenario.name,
+                        start.elapsed().as_secs_f64()
+                    );
                     break;
                 }
             }
@@ -156,7 +183,7 @@ fn main() -> Result<()> {
         }
 
         // Re-send command periodically in case Planning wasn't ready
-        if start.elapsed().as_secs() % 5 == 0 && ch8_pub.msg_count() < 10 {
+        if start.elapsed().as_secs().is_multiple_of(5) && ch8_pub.msg_count() < 10 {
             let cmd = scenario.to_command(ch8_pub.msg_count() as u32);
             let _ = ch8_pub.publish(&cmd);
         }

@@ -30,8 +30,11 @@ struct SimState {
 impl Default for SimState {
     fn default() -> Self {
         Self {
-            x: 0.0, y: 0.0, theta: 0.0,
-            linear_vel: 0.0, angular_vel: 0.0,
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.0,
+            angular_vel: 0.0,
             steering_angle: 0.0,
         }
     }
@@ -61,8 +64,7 @@ pub fn run_dummy_sim(
 
     info!(
         "Dummy sim: sensors@{}Hz on port {}, state@{}Hz on port {}",
-        config.dummy.sensor_rate_hz, config.ch5_port,
-        config.dummy.state_rate_hz, config.ch6_port,
+        config.dummy.sensor_rate_hz, config.ch5_port, config.dummy.state_rate_hz, config.ch6_port,
     );
 
     let sensor_interval = Duration::from_secs_f64(1.0 / config.dummy.sensor_rate_hz as f64);
@@ -78,7 +80,9 @@ pub fn run_dummy_sim(
         let now = Instant::now();
 
         // --- Receive control commands (non-blocking) ---
-        if let Ok(Some(cmd)) = ch7_sub.recv::<limo_proto::SimControlCommand>(Duration::from_millis(1)) {
+        if let Ok(Some(cmd)) =
+            ch7_sub.recv::<limo_proto::SimControlCommand>(Duration::from_millis(1))
+        {
             let mut s = state.lock().unwrap();
             if cmd.emergency_stop {
                 s.linear_vel = 0.0;
@@ -97,8 +101,12 @@ pub fn run_dummy_sim(
             s.y += s.linear_vel * s.theta.sin() * physics_dt;
             s.theta += s.angular_vel * physics_dt;
             // Normalize theta
-            while s.theta > std::f64::consts::PI { s.theta -= 2.0 * std::f64::consts::PI; }
-            while s.theta < -std::f64::consts::PI { s.theta += 2.0 * std::f64::consts::PI; }
+            while s.theta > std::f64::consts::PI {
+                s.theta -= 2.0 * std::f64::consts::PI;
+            }
+            while s.theta < -std::f64::consts::PI {
+                s.theta += 2.0 * std::f64::consts::PI;
+            }
         }
 
         // --- Publish sensor data (CH5) ---
@@ -123,7 +131,9 @@ pub fn run_dummy_sim(
                 lidar_scan: Some(generate_dummy_lidar(config.dummy.lidar_num_points, t)),
                 imu: Some(generate_dummy_imu(t)),
                 ground_truth_pose: Some(limo_proto::Pose2D {
-                    x: s.x, y: s.y, theta: s.theta,
+                    x: s.x,
+                    y: s.y,
+                    theta: s.theta,
                 }),
                 ground_truth_velocity: Some(limo_proto::Twist2D {
                     linear_x: s.linear_vel,
@@ -148,7 +158,9 @@ pub fn run_dummy_sim(
                     frame_id: "sim".into(),
                 }),
                 pose: Some(limo_proto::Pose2D {
-                    x: s.x, y: s.y, theta: s.theta,
+                    x: s.x,
+                    y: s.y,
+                    theta: s.theta,
                 }),
                 velocity: Some(limo_proto::Twist2D {
                     linear_x: s.linear_vel,
@@ -164,10 +176,14 @@ pub fn run_dummy_sim(
             let _ = ch6_pub.publish(&vehicle_state);
             last_state = now;
 
-            if sequence % (config.dummy.state_rate_hz * 5) == 0 {
+            if sequence.is_multiple_of(config.dummy.state_rate_hz * 5) {
                 debug!(
                     "DummySim: pose=({:.2}, {:.2}, {:.1}°) vel=({:.2}, {:.2})",
-                    s.x, s.y, s.theta.to_degrees(), s.linear_vel, s.angular_vel
+                    s.x,
+                    s.y,
+                    s.theta.to_degrees(),
+                    s.linear_vel,
+                    s.angular_vel
                 );
             }
         }

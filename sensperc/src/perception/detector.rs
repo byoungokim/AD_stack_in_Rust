@@ -4,7 +4,6 @@
 /// Falls back to a no-op detector if model is unavailable.
 use anyhow::Result;
 
-
 const DEFAULT_INPUT_SIZE: u32 = 640;
 const DEFAULT_CONFIDENCE: f32 = 0.5;
 const DEFAULT_NMS_THRESHOLD: f32 = 0.45;
@@ -74,12 +73,15 @@ impl ObjectDetector {
     ///
     /// Input: raw BGR8 image bytes, width, height
     /// Output: list of detections
-    pub fn detect(&mut self, _image_data: &[u8], _width: u32, _height: u32) -> Vec<CameraDetection> {
+    pub fn detect(
+        &mut self,
+        _image_data: &[u8],
+        _width: u32,
+        _height: u32,
+    ) -> Vec<CameraDetection> {
         match &self.mode {
             #[cfg(feature = "onnx")]
-            DetectorMode::Onnx(session) => {
-                self.detect_onnx(session, image_data, width, height)
-            }
+            DetectorMode::Onnx(session) => self.detect_onnx(session, image_data, width, height),
             DetectorMode::Fallback => {
                 // No model — return empty
                 vec![]
@@ -143,25 +145,28 @@ impl ObjectDetector {
         let filtered = nms(&raw, self.nms_threshold);
 
         // Convert to CameraDetection
-        filtered.into_iter().map(|d| CameraDetection {
-            x1: d.x1,
-            y1: d.y1,
-            x2: d.x2,
-            y2: d.y2,
-            class_id: coco_to_object_class(d.class_id),
-            confidence: d.confidence,
-        }).collect()
+        filtered
+            .into_iter()
+            .map(|d| CameraDetection {
+                x1: d.x1,
+                y1: d.y1,
+                x2: d.x2,
+                y2: d.y2,
+                class_id: coco_to_object_class(d.class_id),
+                confidence: d.confidence,
+            })
+            .collect()
     }
 }
 
 /// Detection result from camera perception.
 #[derive(Clone, Debug)]
 pub struct CameraDetection {
-    pub x1: f32,          // bounding box left
-    pub y1: f32,          // bounding box top
-    pub x2: f32,          // bounding box right
-    pub y2: f32,          // bounding box bottom
-    pub class_id: usize,  // proto ObjectClass value
+    pub x1: f32,         // bounding box left
+    pub y1: f32,         // bounding box top
+    pub x2: f32,         // bounding box right
+    pub y2: f32,         // bounding box bottom
+    pub class_id: usize, // proto ObjectClass value
     pub confidence: f32,
 }
 

@@ -12,23 +12,23 @@ use crate::global_planner::PathWaypoint;
 pub struct DwaConfig {
     // Velocity limits
     #[serde(default = "default_max_speed")]
-    pub max_speed: f64,         // m/s
+    pub max_speed: f64, // m/s
     #[serde(default = "default_max_angular")]
     pub max_angular_speed: f64, // rad/s
     #[serde(default = "default_max_accel")]
-    pub max_acceleration: f64,  // m/s^2
+    pub max_acceleration: f64, // m/s^2
     #[serde(default = "default_max_angular_accel")]
     pub max_angular_accel: f64, // rad/s^2
 
     // Simulation
     #[serde(default = "default_sim_time")]
-    pub sim_time: f64,          // seconds to simulate forward
+    pub sim_time: f64, // seconds to simulate forward
     #[serde(default = "default_sim_dt")]
-    pub sim_dt: f64,            // simulation time step
+    pub sim_dt: f64, // simulation time step
     #[serde(default = "default_v_samples")]
-    pub v_samples: usize,       // number of linear velocity samples
+    pub v_samples: usize, // number of linear velocity samples
     #[serde(default = "default_w_samples")]
-    pub w_samples: usize,       // number of angular velocity samples
+    pub w_samples: usize, // number of angular velocity samples
 
     // Scoring weights
     #[serde(default = "default_heading_weight")]
@@ -42,22 +42,48 @@ pub struct DwaConfig {
 
     // Safety
     #[serde(default = "default_robot_radius")]
-    pub robot_radius: f64,      // meters, for collision checking
+    pub robot_radius: f64, // meters, for collision checking
 }
 
-fn default_max_speed() -> f64 { 1.0 }
-fn default_max_angular() -> f64 { 1.5 }
-fn default_max_accel() -> f64 { 0.5 }
-fn default_max_angular_accel() -> f64 { 2.0 }
-fn default_sim_time() -> f64 { 1.5 }
-fn default_sim_dt() -> f64 { 0.1 }
-fn default_v_samples() -> usize { 11 }
-fn default_w_samples() -> usize { 21 }
-fn default_heading_weight() -> f64 { 1.0 }
-fn default_distance_weight() -> f64 { 0.5 }
-fn default_velocity_weight() -> f64 { 0.3 }
-fn default_obstacle_weight() -> f64 { 2.0 }
-fn default_robot_radius() -> f64 { 0.2 }
+fn default_max_speed() -> f64 {
+    1.0
+}
+fn default_max_angular() -> f64 {
+    1.5
+}
+fn default_max_accel() -> f64 {
+    0.5
+}
+fn default_max_angular_accel() -> f64 {
+    2.0
+}
+fn default_sim_time() -> f64 {
+    1.5
+}
+fn default_sim_dt() -> f64 {
+    0.1
+}
+fn default_v_samples() -> usize {
+    11
+}
+fn default_w_samples() -> usize {
+    21
+}
+fn default_heading_weight() -> f64 {
+    1.0
+}
+fn default_distance_weight() -> f64 {
+    0.5
+}
+fn default_velocity_weight() -> f64 {
+    0.3
+}
+fn default_obstacle_weight() -> f64 {
+    2.0
+}
+fn default_robot_radius() -> f64 {
+    0.2
+}
 
 impl Default for DwaConfig {
     fn default() -> Self {
@@ -160,7 +186,7 @@ impl DwaPlanner {
 
                 let scored = SimTrajectory { score, ..traj };
 
-                if best.as_ref().map_or(true, |b| scored.score > b.score) {
+                if best.as_ref().is_none_or(|b| scored.score > b.score) {
                     best = Some(scored);
                 }
             }
@@ -210,8 +236,11 @@ impl DwaPlanner {
         }
 
         SimTrajectory {
-            v, w,
-            end_x: x, end_y: y, end_theta: theta,
+            v,
+            w,
+            end_x: x,
+            end_y: y,
+            end_theta: theta,
             min_obstacle_dist: min_dist,
             score: 0.0,
         }
@@ -230,7 +259,10 @@ fn find_local_goal(state: &RobotState, path: &[PathWaypoint]) -> PathWaypoint {
     }
 
     path.last().cloned().unwrap_or(PathWaypoint {
-        x: state.x, y: state.y, theta: state.theta, steering: 0.0,
+        x: state.x,
+        y: state.y,
+        theta: state.theta,
+        steering: 0.0,
     })
 }
 
@@ -246,8 +278,12 @@ fn distance_to_goal(x: f64, y: f64, goal: &PathWaypoint) -> f64 {
 
 fn normalize_angle(angle: f64) -> f64 {
     let mut a = angle;
-    while a > std::f64::consts::PI { a -= 2.0 * std::f64::consts::PI; }
-    while a < -std::f64::consts::PI { a += 2.0 * std::f64::consts::PI; }
+    while a > std::f64::consts::PI {
+        a -= 2.0 * std::f64::consts::PI;
+    }
+    while a < -std::f64::consts::PI {
+        a += 2.0 * std::f64::consts::PI;
+    }
     a
 }
 
@@ -258,10 +294,26 @@ mod tests {
     #[test]
     fn test_dwa_straight_no_obstacles() {
         let planner = DwaPlanner::new(DwaConfig::default());
-        let state = RobotState { x: 0.0, y: 0.0, theta: 0.0, linear_vel: 0.3, angular_vel: 0.0 };
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
         let path = vec![
-            PathWaypoint { x: 1.0, y: 0.0, theta: 0.0, steering: 0.0 },
-            PathWaypoint { x: 2.0, y: 0.0, theta: 0.0, steering: 0.0 },
+            PathWaypoint {
+                x: 1.0,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+            },
+            PathWaypoint {
+                x: 2.0,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+            },
         ];
 
         let cmd = planner.compute(&state, &path, &[], 0.5);
@@ -272,16 +324,27 @@ mod tests {
     #[test]
     fn test_dwa_avoids_obstacle() {
         let planner = DwaPlanner::new(DwaConfig::default());
-        let state = RobotState { x: 0.0, y: 0.0, theta: 0.0, linear_vel: 0.3, angular_vel: 0.0 };
-        let path = vec![
-            PathWaypoint { x: 2.0, y: 0.0, theta: 0.0, steering: 0.0 },
-        ];
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 2.0,
+            y: 0.0,
+            theta: 0.0,
+            steering: 0.0,
+        }];
         let obstacles = vec![Obstacle { x: 0.5, y: 0.0 }];
 
         let cmd = planner.compute(&state, &path, &obstacles, 0.5);
         // Should steer away from obstacle
-        assert!(cmd.angular_z.abs() > 0.01 || cmd.linear_x < 0.1,
-                "Should avoid obstacle by turning or slowing");
+        assert!(
+            cmd.angular_z.abs() > 0.01 || cmd.linear_x < 0.1,
+            "Should avoid obstacle by turning or slowing"
+        );
     }
 
     #[test]

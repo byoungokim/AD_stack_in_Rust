@@ -65,7 +65,9 @@ impl PeerHealth {
         for &peer in peers {
             map.insert(peer.to_string(), now);
         }
-        Self { inner: Arc::new(Mutex::new(map)) }
+        Self {
+            inner: Arc::new(Mutex::new(map)),
+        }
     }
 
     fn update(&self, peer: &str) {
@@ -159,9 +161,9 @@ impl HeartbeatManager {
             let sub_handle = thread::Builder::new()
                 .name(format!("hb-sub-{}", peer))
                 .spawn(move || {
-                    if let Err(e) = heartbeat_subscribe_loop(
-                        &peer_name, peer_port, &health, &sub_running,
-                    ) {
+                    if let Err(e) =
+                        heartbeat_subscribe_loop(&peer_name, peer_port, &health, &sub_running)
+                    {
                         debug!("Heartbeat subscriber for '{}' stopped: {:#}", peer_name, e);
                     }
                 })
@@ -204,11 +206,7 @@ impl Drop for HeartbeatManager {
 }
 
 /// Publish heartbeat at 10Hz.
-fn heartbeat_publish_loop(
-    process_name: &str,
-    port: u16,
-    running: &AtomicBool,
-) -> Result<()> {
+fn heartbeat_publish_loop(process_name: &str, port: u16, running: &AtomicBool) -> Result<()> {
     let ctx = zmq::Context::new();
     let socket = ctx.socket(zmq::PUB)?;
     socket.set_sndhwm(10)?;

@@ -1,7 +1,7 @@
-/// Pose tracker: accumulates scan matching results into global pose.
-///
-/// Maintains the robot's estimated position in the world frame.
-/// Optionally fuses with IMU data for heading correction.
+//! Pose tracker: accumulates scan matching results into global pose.
+//!
+//! Maintains the robot's estimated position in the world frame.
+//! Optionally fuses with IMU data for heading correction.
 
 /// Global pose tracker.
 pub struct PoseTracker {
@@ -12,7 +12,11 @@ pub struct PoseTracker {
 
 impl PoseTracker {
     pub fn new() -> Self {
-        Self { x: 0.0, y: 0.0, theta: 0.0 }
+        Self {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+        }
     }
 
     /// Update pose with a relative motion estimate from scan matching.
@@ -46,8 +50,12 @@ impl PoseTracker {
 
 fn normalize_angle(a: f64) -> f64 {
     let mut v = a;
-    while v > std::f64::consts::PI { v -= 2.0 * std::f64::consts::PI; }
-    while v < -std::f64::consts::PI { v += 2.0 * std::f64::consts::PI; }
+    while v > std::f64::consts::PI {
+        v -= 2.0 * std::f64::consts::PI;
+    }
+    while v < -std::f64::consts::PI {
+        v += 2.0 * std::f64::consts::PI;
+    }
     v
 }
 

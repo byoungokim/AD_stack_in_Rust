@@ -48,9 +48,9 @@ pub struct SensorStore {
 impl SensorStore {
     pub fn new() -> Self {
         Self {
-            camera_buffer: RingBuffer::new(4),   // ~133ms of frames at 30Hz
-            lidar_buffer: RingBuffer::new(8),    // ~800ms of scans at 10Hz
-            imu_buffer: RingBuffer::new(128),    // ~1.28s of readings at 100Hz
+            camera_buffer: RingBuffer::new(4), // ~133ms of frames at 30Hz
+            lidar_buffer: RingBuffer::new(8),  // ~800ms of scans at 10Hz
+            imu_buffer: RingBuffer::new(128),  // ~1.28s of readings at 100Hz
             latest_fused_state: AtomicSlot::new(),
             latest_pose: AtomicSlot::new(),
             latest_velocity: AtomicSlot::new(),

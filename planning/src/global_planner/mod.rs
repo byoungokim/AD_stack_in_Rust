@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 /// Hybrid A* global planner for Ackermann vehicles.
 ///
 /// Plans in (x, y, theta) state space using kinematically feasible
@@ -6,35 +7,48 @@
 ///
 /// Runs at 1Hz — triggered by behavior planner when replanning is needed.
 use std::collections::BinaryHeap;
-use std::cmp::Ordering;
 
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct HybridAStarConfig {
     #[serde(default = "default_xy_resolution")]
-    pub xy_resolution: f64,      // meters per grid cell
+    pub xy_resolution: f64, // meters per grid cell
     #[serde(default = "default_theta_resolution")]
-    pub theta_resolution: f64,   // radians per heading bin
+    pub theta_resolution: f64, // radians per heading bin
     #[serde(default = "default_wheelbase")]
-    pub wheelbase: f64,          // meters
+    pub wheelbase: f64, // meters
     #[serde(default = "default_max_steering")]
     pub max_steering_angle: f64, // radians
     #[serde(default = "default_step_size")]
-    pub step_size: f64,          // meters per expansion step
+    pub step_size: f64, // meters per expansion step
     #[serde(default = "default_num_steer")]
     pub num_steer_angles: usize, // number of discrete steering samples
     #[serde(default = "default_max_iterations")]
     pub max_iterations: usize,
 }
 
-fn default_xy_resolution() -> f64 { 0.1 }
-fn default_theta_resolution() -> f64 { 0.1745 } // ~10 degrees
-fn default_wheelbase() -> f64 { 0.2 }
-fn default_max_steering() -> f64 { 0.48 }
-fn default_step_size() -> f64 { 0.2 }
-fn default_num_steer() -> usize { 5 }
-fn default_max_iterations() -> usize { 100_000 }
+fn default_xy_resolution() -> f64 {
+    0.1
+}
+fn default_theta_resolution() -> f64 {
+    0.1745
+} // ~10 degrees
+fn default_wheelbase() -> f64 {
+    0.2
+}
+fn default_max_steering() -> f64 {
+    0.48
+}
+fn default_step_size() -> f64 {
+    0.2
+}
+fn default_num_steer() -> usize {
+    5
+}
+fn default_max_iterations() -> usize {
+    100_000
+}
 
 impl Default for HybridAStarConfig {
     fn default() -> Self {
@@ -73,16 +87,20 @@ pub struct PathWaypoint {
 pub struct OccupancyGrid {
     pub width: usize,
     pub height: usize,
-    pub resolution: f64,  // meters per cell
+    pub resolution: f64, // meters per cell
     pub origin_x: f64,
     pub origin_y: f64,
-    pub data: Vec<u8>,    // 0 = free, 100 = occupied
+    pub data: Vec<u8>, // 0 = free, 100 = occupied
 }
 
 impl OccupancyGrid {
     pub fn new(width: usize, height: usize, resolution: f64, origin_x: f64, origin_y: f64) -> Self {
         Self {
-            width, height, resolution, origin_x, origin_y,
+            width,
+            height,
+            resolution,
+            origin_x,
+            origin_y,
             data: vec![0; width * height],
         }
     }
@@ -144,7 +162,10 @@ impl PartialOrd for NodeWrapper {
 impl Ord for NodeWrapper {
     fn cmp(&self, other: &Self) -> Ordering {
         // Min-heap: reverse ordering
-        other.f_cost.partial_cmp(&self.f_cost).unwrap_or(Ordering::Equal)
+        other
+            .f_cost
+            .partial_cmp(&self.f_cost)
+            .unwrap_or(Ordering::Equal)
     }
 }
 
@@ -167,7 +188,10 @@ impl HybridAStar {
             })
             .collect();
 
-        Self { config, steer_angles }
+        Self {
+            config,
+            steer_angles,
+        }
     }
 
     /// Plan a path from start to goal on the given occupancy grid.
@@ -193,7 +217,10 @@ impl HybridAStar {
         };
 
         nodes.push(start_node);
-        open.push(NodeWrapper { f_cost: nodes[0].f_cost, idx: 0 });
+        open.push(NodeWrapper {
+            f_cost: nodes[0].f_cost,
+            idx: 0,
+        });
 
         let mut iterations = 0;
 
@@ -226,8 +253,7 @@ impl HybridAStar {
 
             // Expand with each steering angle (forward only for now)
             for &steer in &self.steer_angles {
-                let (new_x, new_y, new_theta) =
-                    self.bicycle_step(nx, ny, ntheta, steer);
+                let (new_x, new_y, new_theta) = self.bicycle_step(nx, ny, ntheta, steer);
 
                 // Collision check
                 if grid.is_occupied(new_x, new_y) {
@@ -239,8 +265,7 @@ impl HybridAStar {
                     continue;
                 }
 
-                let step_cost = self.config.step_size
-                    + 0.5 * steer.abs(); // penalize steering
+                let step_cost = self.config.step_size + 0.5 * steer.abs(); // penalize steering
                 let new_g = ng_cost + step_cost;
                 let new_f = new_g + heuristic(new_x, new_y, new_theta, goal);
 
@@ -255,7 +280,10 @@ impl HybridAStar {
                     parent_idx: Some(current.idx),
                 });
 
-                open.push(NodeWrapper { f_cost: new_f, idx: new_idx });
+                open.push(NodeWrapper {
+                    f_cost: new_f,
+                    idx: new_idx,
+                });
             }
         }
 
@@ -318,8 +346,12 @@ fn heuristic(x: f64, y: f64, theta: f64, goal: &Pose) -> f64 {
 
 fn normalize_angle(angle: f64) -> f64 {
     let mut a = angle;
-    while a > std::f64::consts::PI { a -= 2.0 * std::f64::consts::PI; }
-    while a < -std::f64::consts::PI { a += 2.0 * std::f64::consts::PI; }
+    while a > std::f64::consts::PI {
+        a -= 2.0 * std::f64::consts::PI;
+    }
+    while a < -std::f64::consts::PI {
+        a += 2.0 * std::f64::consts::PI;
+    }
     a
 }
 
@@ -334,8 +366,16 @@ mod tests {
     #[test]
     fn test_plan_straight_line() {
         let planner = HybridAStar::new(HybridAStarConfig::default());
-        let start = Pose { x: 0.0, y: 0.0, theta: 0.0 };
-        let goal = Pose { x: 2.0, y: 0.0, theta: 0.0 };
+        let start = Pose {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+        };
+        let goal = Pose {
+            x: 2.0,
+            y: 0.0,
+            theta: 0.0,
+        };
 
         let path = planner.plan(&start, &goal, &empty_grid());
         assert!(path.is_some(), "Should find a straight-line path");
@@ -347,14 +387,25 @@ mod tests {
         assert!((path[0].x).abs() < 0.2);
         // Last point near goal
         let last = path.last().unwrap();
-        assert!((last.x - 2.0).abs() < 0.5, "Last waypoint should be near goal");
+        assert!(
+            (last.x - 2.0).abs() < 0.5,
+            "Last waypoint should be near goal"
+        );
     }
 
     #[test]
     fn test_plan_with_obstacle() {
         let planner = HybridAStar::new(HybridAStarConfig::default());
-        let start = Pose { x: 0.0, y: 0.0, theta: 0.0 };
-        let goal = Pose { x: 3.0, y: 0.0, theta: 0.0 };
+        let start = Pose {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+        };
+        let goal = Pose {
+            x: 3.0,
+            y: 0.0,
+            theta: 0.0,
+        };
 
         let mut grid = empty_grid();
         // Place a thick wall at x=1.5, spanning y=-2.0 to y=2.0
@@ -372,7 +423,10 @@ mod tests {
         let path = path.unwrap();
         // Path should deviate in y to go around the wall
         let max_y = path.iter().map(|p| p.y.abs()).fold(0.0_f64, f64::max);
-        assert!(max_y > 0.5, "Path should deviate significantly to avoid wall");
+        assert!(
+            max_y > 0.5,
+            "Path should deviate significantly to avoid wall"
+        );
     }
 
     #[test]
@@ -381,8 +435,16 @@ mod tests {
             max_iterations: 5000, // limit search
             ..Default::default()
         });
-        let start = Pose { x: 0.0, y: 0.0, theta: 0.0 };
-        let goal = Pose { x: 3.0, y: 0.0, theta: 0.0 };
+        let start = Pose {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+        };
+        let goal = Pose {
+            x: 3.0,
+            y: 0.0,
+            theta: 0.0,
+        };
 
         let mut grid = empty_grid();
         // Fill everything around the start as occupied, leaving only a tiny pocket
@@ -400,7 +462,10 @@ mod tests {
         }
 
         let path = planner.plan(&start, &goal, &grid);
-        assert!(path.is_none(), "Should not find a path when completely blocked");
+        assert!(
+            path.is_none(),
+            "Should not find a path when completely blocked"
+        );
     }
 
     #[test]

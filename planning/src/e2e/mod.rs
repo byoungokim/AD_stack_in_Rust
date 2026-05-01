@@ -21,10 +21,18 @@ pub struct E2EConfig {
     pub confidence_threshold: f32,
 }
 
-fn default_enabled() -> bool { false }
-fn default_model_path() -> String { "models/e2e_driving.onnx".into() }
-fn default_rate_hz() -> u32 { 15 }
-fn default_confidence_threshold() -> f32 { 0.7 }
+fn default_enabled() -> bool {
+    false
+}
+fn default_model_path() -> String {
+    "models/e2e_driving.onnx".into()
+}
+fn default_rate_hz() -> u32 {
+    15
+}
+fn default_confidence_threshold() -> f32 {
+    0.7
+}
 
 impl Default for E2EConfig {
     fn default() -> Self {

@@ -28,7 +28,7 @@ use arbitrator::Arbitrator;
 use behavior::{BehaviorInput, BehaviorPlanner};
 use config::{load_config, PlanningConfig};
 use e2e::E2EInference;
-use global_planner::{HybridAStar, OccupancyGrid, Pose, PathWaypoint};
+use global_planner::{HybridAStar, OccupancyGrid, PathWaypoint, Pose};
 use local_planner::{LocalPlanner, Obstacle, RobotState};
 
 use limo_transport::{Channel, Publisher, Subscriber};
@@ -38,8 +38,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
@@ -49,7 +48,10 @@ fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "config/planning.yaml".into());
     let config = load_config(&config_path).unwrap_or_else(|e| {
-        warn!("Failed to load config from '{}': {}, using defaults", config_path, e);
+        warn!(
+            "Failed to load config from '{}': {}, using defaults",
+            config_path, e
+        );
         PlanningConfig::default()
     });
 
@@ -103,19 +105,21 @@ fn main() -> Result<()> {
 
     // CH9 publisher: ScenarioStatus feedback
     let mut ch9_pub = Publisher::bind(
-        &zmq_ctx, Channel::ScenarioStatus.bind_endpoint(), Channel::ScenarioStatus.topic(),
+        &zmq_ctx,
+        Channel::ScenarioStatus.bind_endpoint(),
+        Channel::ScenarioStatus.topic(),
     )?;
 
     // CH10 publisher: PlannedPath for visualization
     let mut ch10_pub = Publisher::bind(
-        &zmq_ctx, Channel::PlannedPath.bind_endpoint(), Channel::PlannedPath.topic(),
+        &zmq_ctx,
+        Channel::PlannedPath.bind_endpoint(),
+        Channel::PlannedPath.topic(),
     )?;
 
     info!(
         "ZMQ: sub CH1={}, sub CH3={}, pub CH2={}, sub CH8, pub CH9",
-        config.transport.ch1_endpoint,
-        config.transport.ch3_endpoint,
-        config.transport.ch2_endpoint,
+        config.transport.ch1_endpoint, config.transport.ch3_endpoint, config.transport.ch2_endpoint,
     );
 
     // --- Initialize components ---
@@ -155,18 +159,26 @@ fn main() -> Result<()> {
         let world_state = match ch1_sub.recv::<limo_proto::WorldState>(Duration::from_millis(1)) {
             Ok(Some(ws)) => Some(ws),
             Ok(None) => None,
-            Err(e) => { debug!("CH1 recv error: {:#}", e); None }
+            Err(e) => {
+                debug!("CH1 recv error: {:#}", e);
+                None
+            }
         };
 
         // --- 2. Receive VehicleState from Control (CH3) ---
-        let vehicle_state = match ch3_sub.recv::<limo_proto::VehicleState>(Duration::from_millis(1)) {
+        let vehicle_state = match ch3_sub.recv::<limo_proto::VehicleState>(Duration::from_millis(1))
+        {
             Ok(Some(vs)) => Some(vs),
             Ok(None) => None,
-            Err(e) => { debug!("CH3 recv error: {:#}", e); None }
+            Err(e) => {
+                debug!("CH3 recv error: {:#}", e);
+                None
+            }
         };
 
         // --- 3. Receive ScenarioCommand from CH8 ---
-        if let Ok(Some(cmd)) = ch8_sub.recv::<limo_proto::ScenarioCommand>(Duration::from_millis(0)) {
+        if let Ok(Some(cmd)) = ch8_sub.recv::<limo_proto::ScenarioCommand>(Duration::from_millis(0))
+        {
             if cmd.start && scenario_active && cmd.waypoints.len() == scenario_waypoints.len() {
                 // Skip duplicate start commands (re-sends from scenario manager)
             } else if cmd.start {
@@ -182,11 +194,18 @@ fn main() -> Result<()> {
                     let wp = &scenario_waypoints[0];
                     if let Some(pose) = &wp.goal_pose {
                         behavior.set_goal(behavior::Goal {
-                            x: pose.x, y: pose.y, theta: pose.theta,
+                            x: pose.x,
+                            y: pose.y,
+                            theta: pose.theta,
                         });
-                        info!("Scenario started: type={}, {} waypoints, first='{}' ({:.1},{:.1})",
-                              cmd.r#type, scenario_waypoints.len(),
-                              wp.label, pose.x, pose.y);
+                        info!(
+                            "Scenario started: type={}, {} waypoints, first='{}' ({:.1},{:.1})",
+                            cmd.r#type,
+                            scenario_waypoints.len(),
+                            wp.label,
+                            pose.x,
+                            pose.y
+                        );
                     }
                 }
             } else {
@@ -243,10 +262,12 @@ fn main() -> Result<()> {
             robot_x: robot_state.x,
             robot_y: robot_state.y,
             robot_theta: robot_state.theta,
-            localization_confidence: world_state.as_ref()
+            localization_confidence: world_state
+                .as_ref()
                 .map(|ws| ws.localization_confidence)
                 .unwrap_or(0.0),
-            nearest_obstacle_distance: obstacles.iter()
+            nearest_obstacle_distance: obstacles
+                .iter()
                 .map(|o| ((o.x - robot_state.x).powi(2) + (o.y - robot_state.y).powi(2)).sqrt())
                 .fold(f64::INFINITY, f64::min),
             emergency_stop: false,
@@ -267,7 +288,10 @@ fn main() -> Result<()> {
                 } else {
                     scenario_active = false;
                     behavior.clear_goal();
-                    info!("Scenario complete: all {} waypoints reached", scenario_waypoints.len());
+                    info!(
+                        "Scenario complete: all {} waypoints reached",
+                        scenario_waypoints.len()
+                    );
                 }
             }
 
@@ -275,11 +299,18 @@ fn main() -> Result<()> {
                 let wp = &scenario_waypoints[current_wp_index];
                 if let Some(pose) = &wp.goal_pose {
                     behavior.set_goal(behavior::Goal {
-                        x: pose.x, y: pose.y, theta: pose.theta,
+                        x: pose.x,
+                        y: pose.y,
+                        theta: pose.theta,
                     });
-                    info!("Advancing to waypoint {}/{}: '{}' ({:.1},{:.1})",
-                          current_wp_index + 1, scenario_waypoints.len(),
-                          wp.label, pose.x, pose.y);
+                    info!(
+                        "Advancing to waypoint {}/{}: '{}' ({:.1},{:.1})",
+                        current_wp_index + 1,
+                        scenario_waypoints.len(),
+                        wp.label,
+                        pose.x,
+                        pose.y
+                    );
                 }
             }
         }
@@ -296,9 +327,17 @@ fn main() -> Result<()> {
             let goal = if scenario_active && current_wp_index < scenario_waypoints.len() {
                 let wp = &scenario_waypoints[current_wp_index];
                 let pose = wp.goal_pose.as_ref().unwrap();
-                Pose { x: pose.x, y: pose.y, theta: pose.theta }
+                Pose {
+                    x: pose.x,
+                    y: pose.y,
+                    theta: pose.theta,
+                }
             } else {
-                Pose { x: robot_state.x, y: robot_state.y, theta: robot_state.theta }
+                Pose {
+                    x: robot_state.x,
+                    y: robot_state.y,
+                    theta: robot_state.theta,
+                }
             };
 
             if let Some(path) = global.plan(&start, &goal, &grid) {
@@ -312,12 +351,7 @@ fn main() -> Result<()> {
 
         // --- 7. Local planner (10Hz) ---
         let desired_speed = behavior_out.desired_speed.min(scenario_speed_limit);
-        let local_plan = local.compute(
-            &robot_state,
-            &global_path,
-            &obstacles,
-            desired_speed,
-        );
+        let local_plan = local.compute(&robot_state, &global_path, &obstacles, desired_speed);
         let trad_cmd = local_plan.command.clone();
 
         // --- 7. E2E inference (if enabled) ---
@@ -347,22 +381,31 @@ fn main() -> Result<()> {
                 let wp = &scenario_waypoints[current_wp_index];
                 if let Some(pose) = &wp.goal_pose {
                     ((robot_state.x - pose.x).powi(2) + (robot_state.y - pose.y).powi(2)).sqrt()
-                } else { 0.0 }
-            } else { 0.0 };
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            };
 
             let status = limo_proto::ScenarioStatus {
                 header: Some(limo_proto::Header {
-                    timestamp_ns: now_ns(), sequence: cycle as u32, frame_id: "".into(),
+                    timestamp_ns: now_ns(),
+                    sequence: cycle as u32,
+                    frame_id: "".into(),
                 }),
                 active_scenario: scenario_type,
                 current_waypoint_index: current_wp_index as u32,
                 total_waypoints: scenario_waypoints.len() as u32,
                 distance_to_goal: dist_to_goal as f32,
                 goal_reached: behavior_out.state == behavior::DrivingState::GoalReached,
-                scenario_complete: !scenario_active && !scenario_waypoints.is_empty()
+                scenario_complete: !scenario_active
+                    && !scenario_waypoints.is_empty()
                     && current_wp_index >= scenario_waypoints.len(),
-                active_label: scenario_waypoints.get(current_wp_index)
-                    .map(|wp| wp.label.clone()).unwrap_or_default(),
+                active_label: scenario_waypoints
+                    .get(current_wp_index)
+                    .map(|wp| wp.label.clone())
+                    .unwrap_or_default(),
             };
             let _ = ch9_pub.publish(&status);
         }
@@ -371,26 +414,49 @@ fn main() -> Result<()> {
         {
             let planned_path = limo_proto::PlannedPath {
                 header: Some(limo_proto::Header {
-                    timestamp_ns: now_ns(), sequence: cycle as u32, frame_id: "world".into(),
+                    timestamp_ns: now_ns(),
+                    sequence: cycle as u32,
+                    frame_id: "world".into(),
                 }),
-                global_path: global_path.iter().map(|wp| limo_proto::Pose2D {
-                    x: wp.x, y: wp.y, theta: wp.theta,
-                }).collect(),
-                local_trajectory: local_plan.trajectory.iter().map(|p| limo_proto::Pose2D {
-                    x: p.x, y: p.y, theta: p.theta,
-                }).collect(),
+                global_path: global_path
+                    .iter()
+                    .map(|wp| limo_proto::Pose2D {
+                        x: wp.x,
+                        y: wp.y,
+                        theta: wp.theta,
+                    })
+                    .collect(),
+                local_trajectory: local_plan
+                    .trajectory
+                    .iter()
+                    .map(|p| limo_proto::Pose2D {
+                        x: p.x,
+                        y: p.y,
+                        theta: p.theta,
+                    })
+                    .collect(),
                 current_goal: if scenario_active && current_wp_index < scenario_waypoints.len() {
-                    scenario_waypoints[current_wp_index].goal_pose.clone()
-                } else { None },
-                goal_label: scenario_waypoints.get(current_wp_index)
-                    .map(|wp| wp.label.clone()).unwrap_or_default(),
-                scenario_waypoints: scenario_waypoints.iter()
-                    .filter_map(|wp| wp.goal_pose.clone()).collect(),
-                waypoint_labels: scenario_waypoints.iter()
-                    .map(|wp| wp.label.clone()).collect(),
+                    scenario_waypoints[current_wp_index].goal_pose
+                } else {
+                    None
+                },
+                goal_label: scenario_waypoints
+                    .get(current_wp_index)
+                    .map(|wp| wp.label.clone())
+                    .unwrap_or_default(),
+                scenario_waypoints: scenario_waypoints
+                    .iter()
+                    .filter_map(|wp| wp.goal_pose)
+                    .collect(),
+                waypoint_labels: scenario_waypoints
+                    .iter()
+                    .map(|wp| wp.label.clone())
+                    .collect(),
                 current_waypoint_index: current_wp_index as u32,
                 robot_pose: Some(limo_proto::Pose2D {
-                    x: robot_state.x, y: robot_state.y, theta: robot_state.theta,
+                    x: robot_state.x,
+                    y: robot_state.y,
+                    theta: robot_state.theta,
                 }),
                 robot_speed: arb_out.command.linear_x as f32,
                 behavior_state: format!("{:?}", behavior_out.state),
@@ -400,7 +466,7 @@ fn main() -> Result<()> {
 
         // --- Logging ---
         cycle += 1;
-        if cycle % (local_rate as u64 * 5) == 0 {
+        if cycle.is_multiple_of(local_rate as u64 * 5) {
             info!(
                 "Planning cycle {}: state={:?} speed={:.2} path={} mpc={} ch2_sent={} clipped={}",
                 cycle,
@@ -433,7 +499,9 @@ fn build_robot_state(
         if let Some(pose) = &ws.robot_pose {
             let vel = ws.robot_velocity.as_ref();
             return RobotState {
-                x: pose.x, y: pose.y, theta: pose.theta,
+                x: pose.x,
+                y: pose.y,
+                theta: pose.theta,
                 linear_vel: vel.map(|v| v.linear_x).unwrap_or(0.0),
                 angular_vel: vel.map(|v| v.angular_z).unwrap_or(0.0),
             };
@@ -444,7 +512,9 @@ fn build_robot_state(
         if let Some(pose) = &vs.odometry_pose {
             let vel = vs.odometry_velocity.as_ref();
             return RobotState {
-                x: pose.x, y: pose.y, theta: pose.theta,
+                x: pose.x,
+                y: pose.y,
+                theta: pose.theta,
                 linear_vel: vel.map(|v| v.linear_x).unwrap_or(0.0),
                 angular_vel: vel.map(|v| v.angular_z).unwrap_or(0.0),
             };

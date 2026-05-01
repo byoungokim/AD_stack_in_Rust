@@ -23,10 +23,10 @@ use tracing_subscriber::EnvFilter;
 use config::{load_config, SensPercConfig};
 use store::SensorStore;
 
-use limo_hal::SensorSource;
-use limo_hal::limo_hw::{LimoHwSensorSource, LimoHwSensorConfig};
-use limo_hal::sim_zmq::SimZmqSensorSource;
 use limo_hal::dummy::DummySensorSource;
+use limo_hal::limo_hw::{LimoHwSensorConfig, LimoHwSensorSource};
+use limo_hal::sim_zmq::SimZmqSensorSource;
+use limo_hal::SensorSource;
 use limo_transport::{Channel, HeartbeatManager, Publisher, Subscriber};
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -34,8 +34,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
@@ -45,12 +44,15 @@ fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "config/sensperc.yaml".into());
     let config = load_config(&config_path).unwrap_or_else(|e| {
-        warn!("Failed to load config from '{}': {}, using defaults", config_path, e);
+        warn!(
+            "Failed to load config from '{}': {}, using defaults",
+            config_path, e
+        );
         SensPercConfig::default()
     });
 
-    let sim_mode = std::env::args().any(|a| a == "--sim")
-        || std::env::var("LIMO_SIM").map_or(false, |v| v == "1");
+    let sim_mode =
+        std::env::args().any(|a| a == "--sim") || std::env::var("LIMO_SIM").is_ok_and(|v| v == "1");
     let dummy_mode = std::env::args().any(|a| a == "--dummy");
 
     info!("Config loaded: aggregator={}Hz", config.aggregator.rate_hz);
@@ -166,9 +168,12 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
         // Camera
         if let Some(frame) = source.recv_camera() {
             store.push_camera_frame(store::types::CameraFrame {
-                timestamp_ns: frame.timestamp_ns, width: frame.width,
-                height: frame.height, encoding: frame.encoding,
-                data: frame.data, sequence: frame.sequence,
+                timestamp_ns: frame.timestamp_ns,
+                width: frame.width,
+                height: frame.height,
+                encoding: frame.encoding,
+                data: frame.data,
+                sequence: frame.sequence,
             });
             got_data = true;
         }
@@ -176,10 +181,14 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
         // LiDAR
         if let Some(scan) = source.recv_lidar() {
             store.push_lidar_scan(store::types::LidarScan {
-                timestamp_ns: scan.timestamp_ns, angle_min: scan.angle_min,
-                angle_max: scan.angle_max, angle_increment: scan.angle_increment,
-                range_min: scan.range_min, range_max: scan.range_max,
-                ranges: scan.ranges, intensities: scan.intensities,
+                timestamp_ns: scan.timestamp_ns,
+                angle_min: scan.angle_min,
+                angle_max: scan.angle_max,
+                angle_increment: scan.angle_increment,
+                range_min: scan.range_min,
+                range_max: scan.range_max,
+                ranges: scan.ranges,
+                intensities: scan.intensities,
                 sequence: scan.sequence,
             });
             got_data = true;
@@ -200,7 +209,9 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
         // Pose (from sim ground truth or SLAM)
         if let Some((pose, confidence)) = source.recv_pose() {
             store.latest_pose.store(store::types::Pose2D {
-                x: pose.x, y: pose.y, theta: pose.theta,
+                x: pose.x,
+                y: pose.y,
+                theta: pose.theta,
             });
             store.localization_confidence.store(confidence);
             got_data = true;
@@ -209,7 +220,8 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
         // Velocity
         if let Some(vel) = source.recv_velocity() {
             store.latest_velocity.store(store::types::Twist2D {
-                linear_x: vel.linear_x, linear_y: vel.linear_y,
+                linear_x: vel.linear_x,
+                linear_y: vel.linear_y,
                 angular_z: vel.angular_z,
             });
             got_data = true;
@@ -225,22 +237,18 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
 }
 
 /// Aggregator loop: reads latest sensor data, subscribes CH3, publishes WorldState on CH1.
-fn aggregator_loop(
-    store: &Arc<SensorStore>,
-    config: &config::AggregatorConfig,
-) -> Result<()> {
+fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) -> Result<()> {
     let zmq_ctx = zmq::Context::new();
 
-    let mut ch1_pub = Publisher::bind(
-        &zmq_ctx, &config.ch1_endpoint, Channel::WorldState.topic(),
-    )?;
+    let mut ch1_pub = Publisher::bind(&zmq_ctx, &config.ch1_endpoint, Channel::WorldState.topic())?;
 
     let ch3_connect = Channel::VehicleState.connect_endpoint();
-    let mut ch3_sub = Subscriber::connect(
-        &zmq_ctx, ch3_connect, Channel::VehicleState.topic(),
-    )?;
+    let mut ch3_sub = Subscriber::connect(&zmq_ctx, ch3_connect, Channel::VehicleState.topic())?;
 
-    info!("Aggregator started at {}Hz, CH1={}, CH3={}", config.rate_hz, config.ch1_endpoint, ch3_connect);
+    info!(
+        "Aggregator started at {}Hz, CH1={}, CH3={}",
+        config.rate_hz, config.ch1_endpoint, ch3_connect
+    );
 
     let interval = Duration::from_secs_f64(1.0 / config.rate_hz as f64);
     let mut cycle: u64 = 0;
@@ -253,7 +261,9 @@ fn aggregator_loop(
             if let Some(pose) = &vs.odometry_pose {
                 if store.latest_pose.age_secs() > 0.5 {
                     store.latest_pose.store(store::types::Pose2D {
-                        x: pose.x, y: pose.y, theta: pose.theta,
+                        x: pose.x,
+                        y: pose.y,
+                        theta: pose.theta,
                     });
                     store.localization_confidence.store(0.6);
                 }
@@ -261,7 +271,8 @@ fn aggregator_loop(
             if let Some(vel) = &vs.odometry_velocity {
                 if store.latest_velocity.age_secs() > 0.5 {
                     store.latest_velocity.store(store::types::Twist2D {
-                        linear_x: vel.linear_x, linear_y: vel.linear_y,
+                        linear_x: vel.linear_x,
+                        linear_y: vel.linear_y,
                         angular_z: vel.angular_z,
                     });
                 }
@@ -287,7 +298,9 @@ fn aggregator_loop(
                     scan.angle_increment
                 } else if num_points > 1 {
                     (scan.angle_max - scan.angle_min) / (num_points - 1) as f32
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
 
                 for (i, &range) in scan.ranges.iter().enumerate() {
                     // Only report close obstacles (< 3m)
@@ -301,7 +314,7 @@ fn aggregator_loop(
                             confidence: 0.8,
                             bbox_image: None,
                             position_world: Some(limo_proto::Point2D { x: wx, y: wy }),
-                            distance: range as f32,
+                            distance: range,
                         });
                     }
                 }
@@ -311,8 +324,13 @@ fn aggregator_loop(
                 let step = dets.len() / 50;
                 dets = dets.into_iter().step_by(step).collect();
             }
-            Some(limo_proto::DetectionArray { header: None, detections: dets })
-        } else { None };
+            Some(limo_proto::DetectionArray {
+                header: None,
+                detections: dets,
+            })
+        } else {
+            None
+        };
 
         // Merge camera detections (from YOLO) if available
         let detections = if let Some(cam_dets) = store.latest_detections.load() {
@@ -323,7 +341,9 @@ fn aggregator_loop(
                 let bbox_height = cd.y2 - cd.y1;
                 let est_distance = if bbox_height > 10.0 {
                     (480.0 / bbox_height) * 0.5 // rough depth from bbox
-                } else { 5.0 };
+                } else {
+                    5.0
+                };
 
                 all_dets.push(limo_proto::Detection {
                     object_class: cd.class_id as i32,
@@ -342,7 +362,10 @@ fn aggregator_loop(
                     distance: est_distance,
                 });
             }
-            Some(limo_proto::DetectionArray { header: None, detections: all_dets })
+            Some(limo_proto::DetectionArray {
+                header: None,
+                detections: all_dets,
+            })
         } else {
             detections
         };
@@ -350,26 +373,37 @@ fn aggregator_loop(
         // Compose and publish WorldState on CH1
         let world_state = limo_proto::WorldState {
             header: Some(limo_proto::Header {
-                timestamp_ns: now_ns(), sequence: cycle as u32,
+                timestamp_ns: now_ns(),
+                sequence: cycle as u32,
                 frame_id: "world".into(),
             }),
             robot_pose: Some(limo_proto::Pose2D {
-                x: pose.x, y: pose.y, theta: pose.theta,
+                x: pose.x,
+                y: pose.y,
+                theta: pose.theta,
             }),
             robot_velocity: Some(limo_proto::Twist2D {
-                linear_x: velocity.linear_x, linear_y: velocity.linear_y,
+                linear_x: velocity.linear_x,
+                linear_y: velocity.linear_y,
                 angular_z: velocity.angular_z,
             }),
             detections,
             lanes: None,
-            local_map: store.slam_local_map.load().map(|m| limo_proto::OccupancyGrid {
-                header: None,
-                width: m.width as u32,
-                height: m.height as u32,
-                resolution: m.resolution as f32,
-                origin: Some(limo_proto::Pose2D { x: m.origin_x, y: m.origin_y, theta: 0.0 }),
-                data: m.data,
-            }),
+            local_map: store
+                .slam_local_map
+                .load()
+                .map(|m| limo_proto::OccupancyGrid {
+                    header: None,
+                    width: m.width as u32,
+                    height: m.height as u32,
+                    resolution: m.resolution as f32,
+                    origin: Some(limo_proto::Pose2D {
+                        x: m.origin_x,
+                        y: m.origin_y,
+                        theta: 0.0,
+                    }),
+                    data: m.data,
+                }),
             localization_confidence: loc_confidence,
         };
 
@@ -378,17 +412,22 @@ fn aggregator_loop(
         }
 
         cycle += 1;
-        if cycle % (config.rate_hz as u64 * 10) == 0 {
+        if cycle.is_multiple_of(config.rate_hz as u64 * 10) {
             let stats = store.stats();
             info!(
                 "Aggregator cycle {}: cam={}, lidar={}, imu={}, ch1_sent={}",
-                cycle, stats.camera_frames, stats.lidar_scans, stats.imu_readings,
+                cycle,
+                stats.camera_frames,
+                stats.lidar_scans,
+                stats.imu_readings,
                 ch1_pub.msg_count(),
             );
         }
 
         let elapsed = cycle_start.elapsed();
-        if elapsed < interval { thread::sleep(interval - elapsed); }
+        if elapsed < interval {
+            thread::sleep(interval - elapsed);
+        }
     }
 
     info!("Aggregator stopped");
@@ -397,7 +436,9 @@ fn aggregator_loop(
 
 fn now_ns() -> u64 {
     std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }
 
 fn ctrlc_handler() {

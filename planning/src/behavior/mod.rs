@@ -29,20 +29,30 @@ pub struct BehaviorConfig {
     #[serde(default = "default_rate_hz")]
     pub rate_hz: u32,
     #[serde(default = "default_goal_tolerance")]
-    pub goal_tolerance: f64,       // meters
+    pub goal_tolerance: f64, // meters
     #[serde(default = "default_approach_distance")]
-    pub approach_distance: f64,    // meters, start decelerating
+    pub approach_distance: f64, // meters, start decelerating
     #[serde(default = "default_obstacle_distance")]
     pub obstacle_stop_distance: f64, // meters, stop if obstacle closer
     #[serde(default = "default_speed")]
-    pub default_speed: f64,        // m/s
+    pub default_speed: f64, // m/s
 }
 
-fn default_rate_hz() -> u32 { 5 }
-fn default_goal_tolerance() -> f64 { 0.15 }
-fn default_approach_distance() -> f64 { 0.5 }
-fn default_obstacle_distance() -> f64 { 0.3 }
-fn default_speed() -> f64 { 0.5 }
+fn default_rate_hz() -> u32 {
+    5
+}
+fn default_goal_tolerance() -> f64 {
+    0.15
+}
+fn default_approach_distance() -> f64 {
+    0.5
+}
+fn default_obstacle_distance() -> f64 {
+    0.3
+}
+fn default_speed() -> f64 {
+    0.5
+}
 
 impl Default for BehaviorConfig {
     fn default() -> Self {
@@ -101,8 +111,12 @@ impl BehaviorPlanner {
     }
 
     pub fn set_goal(&mut self, goal: Goal) {
-        info!("Behavior: new goal ({:.2}, {:.2}, {:.1}°)",
-              goal.x, goal.y, goal.theta.to_degrees());
+        info!(
+            "Behavior: new goal ({:.2}, {:.2}, {:.1}°)",
+            goal.x,
+            goal.y,
+            goal.theta.to_degrees()
+        );
         self.goal = Some(goal);
         self.state = DrivingState::Following;
     }
@@ -112,6 +126,7 @@ impl BehaviorPlanner {
         self.state = DrivingState::Idle;
     }
 
+    #[allow(dead_code)] // Inspection accessor for tests / future status publishing.
     pub fn state(&self) -> DrivingState {
         self.state
     }
@@ -236,7 +251,9 @@ mod tests {
 
     fn default_input() -> BehaviorInput {
         BehaviorInput {
-            robot_x: 0.0, robot_y: 0.0, robot_theta: 0.0,
+            robot_x: 0.0,
+            robot_y: 0.0,
+            robot_theta: 0.0,
             localization_confidence: 0.9,
             nearest_obstacle_distance: 5.0,
             emergency_stop: false,
@@ -248,7 +265,11 @@ mod tests {
         let mut bp = BehaviorPlanner::new(BehaviorConfig::default());
         assert_eq!(bp.state(), DrivingState::Idle);
 
-        bp.set_goal(Goal { x: 5.0, y: 0.0, theta: 0.0 });
+        bp.set_goal(Goal {
+            x: 5.0,
+            y: 0.0,
+            theta: 0.0,
+        });
         let out = bp.update(&default_input());
         assert_eq!(out.state, DrivingState::Following);
         assert!(out.desired_speed > 0.0);
@@ -257,7 +278,11 @@ mod tests {
     #[test]
     fn test_goal_reached() {
         let mut bp = BehaviorPlanner::new(BehaviorConfig::default());
-        bp.set_goal(Goal { x: 0.05, y: 0.05, theta: 0.0 });
+        bp.set_goal(Goal {
+            x: 0.05,
+            y: 0.05,
+            theta: 0.0,
+        });
 
         let out = bp.update(&default_input());
         assert_eq!(out.state, DrivingState::GoalReached);
@@ -267,7 +292,11 @@ mod tests {
     #[test]
     fn test_emergency_stop_override() {
         let mut bp = BehaviorPlanner::new(BehaviorConfig::default());
-        bp.set_goal(Goal { x: 5.0, y: 0.0, theta: 0.0 });
+        bp.set_goal(Goal {
+            x: 5.0,
+            y: 0.0,
+            theta: 0.0,
+        });
 
         let mut input = default_input();
         input.emergency_stop = true;
@@ -279,7 +308,11 @@ mod tests {
     #[test]
     fn test_obstacle_avoidance() {
         let mut bp = BehaviorPlanner::new(BehaviorConfig::default());
-        bp.set_goal(Goal { x: 5.0, y: 0.0, theta: 0.0 });
+        bp.set_goal(Goal {
+            x: 5.0,
+            y: 0.0,
+            theta: 0.0,
+        });
         bp.update(&default_input()); // transition to Following
 
         let mut input = default_input();

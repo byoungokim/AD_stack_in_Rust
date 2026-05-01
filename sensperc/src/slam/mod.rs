@@ -6,21 +6,21 @@
 ///
 /// Runs as a single thread at 10Hz (LiDAR rate).
 pub mod features;
-pub mod scan_matcher;
-pub mod pose_tracker;
 pub mod grid_builder;
+pub mod pose_tracker;
+pub mod scan_matcher;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tracing::{debug, info};
 
 use crate::store::SensorStore;
-use features::{scan_to_points, extract_lines, extract_corners, LineSegment};
-use scan_matcher::match_scans;
-use pose_tracker::PoseTracker;
+use features::{extract_corners, extract_lines, scan_to_points, LineSegment};
 use grid_builder::GridBuilder;
+use pose_tracker::PoseTracker;
+use scan_matcher::match_scans;
 
 /// Run the SLAM processing loop.
 ///
@@ -69,9 +69,10 @@ pub fn slam_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool) {
         // 3. Match against previous scan
         if !prev_lines.is_empty() && !lines.is_empty() {
             let match_result = match_scans(
-                &prev_lines, &lines,
-                0.3,  // max angle diff for line matching (radians)
-                2.0,  // max distance for matching (meters)
+                &prev_lines,
+                &lines,
+                0.3, // max angle diff for line matching (radians)
+                2.0, // max distance for matching (meters)
             );
 
             if match_result.confidence > 0.2 && match_result.num_matches >= 2 {
@@ -86,7 +87,9 @@ pub fn slam_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool) {
 
                 // Write SLAM pose to store (confidence=0.8, higher than odometry)
                 // Only overwrite if no higher-priority source is fresh
-                if store.latest_pose.age_secs() > 0.05 || store.localization_confidence.load().unwrap_or(0.0) < 0.8 {
+                if store.latest_pose.age_secs() > 0.05
+                    || store.localization_confidence.load().unwrap_or(0.0) < 0.8
+                {
                     store.latest_pose.store(crate::store::types::Pose2D {
                         x: tracker.x,
                         y: tracker.y,
@@ -99,10 +102,14 @@ pub fn slam_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool) {
 
         // 4. Build occupancy grid from current scan + estimated pose
         grid_builder.update(
-            tracker.x, tracker.y, tracker.theta,
+            tracker.x,
+            tracker.y,
+            tracker.theta,
             &scan.ranges,
-            scan.angle_min, scan.angle_increment,
-            scan.range_min, scan.range_max,
+            scan.angle_min,
+            scan.angle_increment,
+            scan.range_min,
+            scan.range_max,
         );
 
         let occupancy_grid = grid_builder.to_occupancy_grid(tracker.x, tracker.y);
@@ -112,11 +119,15 @@ pub fn slam_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool) {
         prev_lines = lines;
 
         cycle += 1;
-        if cycle % 50 == 0 {
+        if cycle.is_multiple_of(50) {
             debug!(
                 "SLAM cycle {}: pose=({:.2}, {:.2}, {:.1}°) lines={} prev_lines={}",
-                cycle, tracker.x, tracker.y, tracker.theta.to_degrees(),
-                prev_lines.len(), prev_lines.len(),
+                cycle,
+                tracker.x,
+                tracker.y,
+                tracker.theta.to_degrees(),
+                prev_lines.len(),
+                prev_lines.len(),
             );
         }
 

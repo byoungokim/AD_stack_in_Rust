@@ -5,7 +5,6 @@
 use std::thread;
 use std::time::Duration;
 
-use limo_proto;
 use limo_transport::{Channel, Publisher, Subscriber};
 
 fn test_ctx() -> zmq::Context {
@@ -52,15 +51,37 @@ fn test_sim_sensor_data_roundtrip() {
         }),
         imu: Some(limo_proto::ImuReading {
             header: None,
-            linear_acceleration: Some(limo_proto::Vector3 { x: 0.0, y: 0.0, z: 9.81 }),
-            angular_velocity: Some(limo_proto::Vector3 { x: 0.0, y: 0.0, z: 0.0 }),
-            orientation_euler: Some(limo_proto::Vector3 { x: 0.0, y: 0.0, z: 0.0 }),
+            linear_acceleration: Some(limo_proto::Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 9.81,
+            }),
+            angular_velocity: Some(limo_proto::Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            }),
+            orientation_euler: Some(limo_proto::Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            }),
         }),
-        ground_truth_pose: Some(limo_proto::Pose2D { x: 1.0, y: 2.0, theta: 0.5 }),
-        ground_truth_velocity: Some(limo_proto::Twist2D { linear_x: 0.3, linear_y: 0.0, angular_z: 0.1 }),
+        ground_truth_pose: Some(limo_proto::Pose2D {
+            x: 1.0,
+            y: 2.0,
+            theta: 0.5,
+        }),
+        ground_truth_velocity: Some(limo_proto::Twist2D {
+            linear_x: 0.3,
+            linear_y: 0.0,
+            angular_z: 0.1,
+        }),
     };
 
-    publisher.publish(&msg).expect("Failed to publish SimSensorData");
+    publisher
+        .publish(&msg)
+        .expect("Failed to publish SimSensorData");
 
     let received: limo_proto::SimSensorData = subscriber
         .recv(Duration::from_secs(2))
@@ -105,8 +126,16 @@ fn test_sim_vehicle_state_roundtrip() {
             sequence: 5,
             frame_id: "sim".into(),
         }),
-        pose: Some(limo_proto::Pose2D { x: 3.0, y: 1.0, theta: 1.2 }),
-        velocity: Some(limo_proto::Twist2D { linear_x: 0.5, linear_y: 0.0, angular_z: 0.2 }),
+        pose: Some(limo_proto::Pose2D {
+            x: 3.0,
+            y: 1.0,
+            theta: 1.2,
+        }),
+        velocity: Some(limo_proto::Twist2D {
+            linear_x: 0.5,
+            linear_y: 0.0,
+            angular_z: 0.2,
+        }),
         steering_angle: 0.15,
         battery_voltage: 12.6,
         drive_mode: 1, // Ackermann
@@ -173,8 +202,8 @@ fn test_sim_emergency_stop() {
     let ctx = test_ctx();
     let endpoint = unique_endpoint(16563);
 
-    let mut publisher = Publisher::bind(&ctx, &endpoint, Channel::SimControl.topic())
-        .expect("Failed to bind");
+    let mut publisher =
+        Publisher::bind(&ctx, &endpoint, Channel::SimControl.topic()).expect("Failed to bind");
     let mut subscriber = Subscriber::connect(&ctx, &endpoint, Channel::SimControl.topic())
         .expect("Failed to connect");
 
@@ -182,7 +211,9 @@ fn test_sim_emergency_stop() {
 
     let msg = limo_proto::SimControlCommand {
         header: Some(limo_proto::Header {
-            timestamp_ns: 4000000, sequence: 0, frame_id: "".into(),
+            timestamp_ns: 4000000,
+            sequence: 0,
+            frame_id: "".into(),
         }),
         linear_velocity: 0.0,
         angular_velocity: 0.0,
@@ -226,21 +257,35 @@ fn test_sim_full_loop() {
     // Isaac Sim publishes state
     let state = limo_proto::SimVehicleState {
         header: Some(limo_proto::Header {
-            timestamp_ns: 5000000, sequence: 1, frame_id: "sim".into(),
+            timestamp_ns: 5000000,
+            sequence: 1,
+            frame_id: "sim".into(),
         }),
-        pose: Some(limo_proto::Pose2D { x: 0.0, y: 0.0, theta: 0.0 }),
-        velocity: Some(limo_proto::Twist2D { linear_x: 0.0, linear_y: 0.0, angular_z: 0.0 }),
+        pose: Some(limo_proto::Pose2D {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+        }),
+        velocity: Some(limo_proto::Twist2D {
+            linear_x: 0.0,
+            linear_y: 0.0,
+            angular_z: 0.0,
+        }),
         steering_angle: 0.0,
         battery_voltage: 12.6,
         drive_mode: 1,
         collision_detected: false,
     };
-    sim_state_pub.publish(&state).expect("Failed to publish state");
+    sim_state_pub
+        .publish(&state)
+        .expect("Failed to publish state");
 
     // Control process publishes a command back
     let cmd = limo_proto::SimControlCommand {
         header: Some(limo_proto::Header {
-            timestamp_ns: 5000000, sequence: 1, frame_id: "".into(),
+            timestamp_ns: 5000000,
+            sequence: 1,
+            frame_id: "".into(),
         }),
         linear_velocity: 0.3,
         angular_velocity: 0.0,
@@ -266,8 +311,8 @@ fn test_sim_channel_isolation() {
     let endpoint = unique_endpoint(16566);
 
     // Publish on SimSensors topic
-    let mut publisher = Publisher::bind(&ctx, &endpoint, Channel::SimSensors.topic())
-        .expect("Failed to bind");
+    let mut publisher =
+        Publisher::bind(&ctx, &endpoint, Channel::SimSensors.topic()).expect("Failed to bind");
 
     // Subscribe on SimControl topic — should NOT receive
     let mut wrong_sub = Subscriber::connect(&ctx, &endpoint, Channel::SimControl.topic())
@@ -277,7 +322,9 @@ fn test_sim_channel_isolation() {
 
     let msg = limo_proto::SimSensorData {
         header: Some(limo_proto::Header {
-            timestamp_ns: 1111, sequence: 1, frame_id: "sim".into(),
+            timestamp_ns: 1111,
+            sequence: 1,
+            frame_id: "sim".into(),
         }),
         ..Default::default()
     };
@@ -285,5 +332,8 @@ fn test_sim_channel_isolation() {
     publisher.publish(&msg).expect("Failed to publish");
 
     let result = wrong_sub.recv::<limo_proto::SimControlCommand>(Duration::from_millis(300));
-    assert!(result.unwrap().is_none(), "Should not receive on wrong sim topic");
+    assert!(
+        result.unwrap().is_none(),
+        "Should not receive on wrong sim topic"
+    );
 }

@@ -13,8 +13,8 @@ use tracing::info;
 use limo_transport::{Channel, Publisher, Subscriber};
 
 use crate::{
-    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand,
-    Pose2D, SensorSource, Twist2D, VehicleController,
+    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, Pose2D, SensorSource,
+    Twist2D, VehicleController,
 };
 
 // ======================== Configuration ========================
@@ -29,7 +29,10 @@ pub struct SimAckermannConfig {
 
 impl Default for SimAckermannConfig {
     fn default() -> Self {
-        Self { wheelbase: 0.2, max_steering_angle: 0.48 }
+        Self {
+            wheelbase: 0.2,
+            max_steering_angle: 0.48,
+        }
     }
 }
 
@@ -68,8 +71,14 @@ struct XorShift64 {
 
 impl XorShift64 {
     fn new(seed: u64) -> Self {
-        let s = if seed == 0 { 0xDEAD_BEEF_CAFE_BABE } else { seed };
-        Self { state: Cell::new(s) }
+        let s = if seed == 0 {
+            0xDEAD_BEEF_CAFE_BABE
+        } else {
+            seed
+        };
+        Self {
+            state: Cell::new(s),
+        }
     }
 
     fn next_f32(&self) -> f32 {
@@ -93,6 +102,12 @@ pub struct SimZmqSensorSource {
     latest_velocity: Option<Twist2D>,
     faults: SimFaultConfig,
     rng: XorShift64,
+}
+
+impl Default for SimZmqSensorSource {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SimZmqSensorSource {
@@ -122,10 +137,12 @@ impl SimZmqSensorSource {
     fn poll(&mut self) {
         loop {
             let sim = match self.ch5_sub.as_mut() {
-                Some(sub) => match sub.recv::<limo_proto::SimSensorData>(Duration::from_millis(0)) {
-                    Ok(Some(m)) => m,
-                    _ => return,
-                },
+                Some(sub) => {
+                    match sub.recv::<limo_proto::SimSensorData>(Duration::from_millis(0)) {
+                        Ok(Some(m)) => m,
+                        _ => return,
+                    }
+                }
                 None => return,
             };
             // ch5_sub borrow released here; safe to call &self methods below.
@@ -137,22 +154,28 @@ impl SimZmqSensorSource {
         let ts = sim.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0);
         let seq = sim.header.as_ref().map(|h| h.sequence).unwrap_or(0);
 
-        if !sim.camera_image.is_empty()
-            && !self.should_drop(self.faults.camera_drop_rate)
-        {
+        if !sim.camera_image.is_empty() && !self.should_drop(self.faults.camera_drop_rate) {
             self.latest_camera = Some(CameraFrame {
-                timestamp_ns: ts, width: sim.camera_width,
-                height: sim.camera_height, encoding: sim.camera_encoding.clone(),
-                data: sim.camera_image, sequence: seq,
+                timestamp_ns: ts,
+                width: sim.camera_width,
+                height: sim.camera_height,
+                encoding: sim.camera_encoding.clone(),
+                data: sim.camera_image,
+                sequence: seq,
             });
         }
         if let Some(scan) = sim.lidar_scan {
             if !self.should_drop(self.faults.lidar_drop_rate) {
                 self.latest_lidar = Some(LidarScan {
-                    timestamp_ns: ts, angle_min: scan.angle_min,
-                    angle_max: scan.angle_max, angle_increment: scan.angle_increment,
-                    range_min: scan.range_min, range_max: scan.range_max,
-                    ranges: scan.ranges, intensities: scan.intensities, sequence: seq,
+                    timestamp_ns: ts,
+                    angle_min: scan.angle_min,
+                    angle_max: scan.angle_max,
+                    angle_increment: scan.angle_increment,
+                    range_min: scan.range_min,
+                    range_max: scan.range_max,
+                    ranges: scan.ranges,
+                    intensities: scan.intensities,
+                    sequence: seq,
                 });
             }
         }
@@ -172,13 +195,22 @@ impl SimZmqSensorSource {
         }
         if let Some(p) = sim.ground_truth_pose {
             if !self.should_drop(self.faults.pose_drop_rate) {
-                self.latest_pose = Some((Pose2D { x: p.x, y: p.y, theta: p.theta }, 1.0));
+                self.latest_pose = Some((
+                    Pose2D {
+                        x: p.x,
+                        y: p.y,
+                        theta: p.theta,
+                    },
+                    1.0,
+                ));
             }
         }
         if let Some(v) = sim.ground_truth_velocity {
             if !self.should_drop(self.faults.velocity_drop_rate) {
                 self.latest_velocity = Some(Twist2D {
-                    linear_x: v.linear_x, linear_y: v.linear_y, angular_z: v.angular_z,
+                    linear_x: v.linear_x,
+                    linear_y: v.linear_y,
+                    angular_z: v.angular_z,
                 });
             }
         }
@@ -193,7 +225,10 @@ impl SensorSource for SimZmqSensorSource {
             Channel::SimSensors.connect_endpoint(),
             Channel::SimSensors.topic(),
         )?);
-        info!("SimZmqSensorSource started (CH5: {})", Channel::SimSensors.connect_endpoint());
+        info!(
+            "SimZmqSensorSource started (CH5: {})",
+            Channel::SimSensors.connect_endpoint()
+        );
         Ok(())
     }
 
@@ -227,7 +262,9 @@ impl SensorSource for SimZmqSensorSource {
         self.latest_velocity.take()
     }
 
-    fn name(&self) -> &str { "sim_zmq" }
+    fn name(&self) -> &str {
+        "sim_zmq"
+    }
 }
 
 // ======================== VehicleController ========================
@@ -240,6 +277,12 @@ pub struct SimZmqVehicleController {
     kinematics: SimAckermannConfig,
     faults: SimFaultConfig,
     rng: XorShift64,
+}
+
+impl Default for SimZmqVehicleController {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SimZmqVehicleController {
@@ -274,16 +317,21 @@ impl SimZmqVehicleController {
             return 0.0;
         }
         let s = (cmd.angular_vel * self.kinematics.wheelbase / cmd.linear_vel).atan();
-        s.clamp(-self.kinematics.max_steering_angle, self.kinematics.max_steering_angle) as f32
+        s.clamp(
+            -self.kinematics.max_steering_angle,
+            self.kinematics.max_steering_angle,
+        ) as f32
     }
 
     fn poll_feedback(&mut self) {
         loop {
             let vs = match self.ch6_sub.as_mut() {
-                Some(sub) => match sub.recv::<limo_proto::SimVehicleState>(Duration::from_millis(0)) {
-                    Ok(Some(m)) => m,
-                    _ => return,
-                },
+                Some(sub) => {
+                    match sub.recv::<limo_proto::SimVehicleState>(Duration::from_millis(0)) {
+                        Ok(Some(m)) => m,
+                        _ => return,
+                    }
+                }
                 None => return,
             };
             // ch6_sub borrow released here; safe to call &self methods.
@@ -315,9 +363,11 @@ impl VehicleController for SimZmqVehicleController {
             Channel::SimControl.bind_endpoint(),
             Channel::SimControl.topic(),
         )?);
-        info!("SimZmqVehicleController started (CH6: {}, CH7: {})",
-              Channel::SimVehicleState.connect_endpoint(),
-              Channel::SimControl.bind_endpoint());
+        info!(
+            "SimZmqVehicleController started (CH6: {}, CH7: {})",
+            Channel::SimVehicleState.connect_endpoint(),
+            Channel::SimControl.bind_endpoint()
+        );
         Ok(())
     }
 
@@ -334,7 +384,9 @@ impl VehicleController for SimZmqVehicleController {
             let msg = limo_proto::SimControlCommand {
                 header: Some(limo_proto::Header {
                     timestamp_ns: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64,
                     sequence,
                     frame_id: "".into(),
                 }),
@@ -354,7 +406,9 @@ impl VehicleController for SimZmqVehicleController {
         self.latest_feedback.clone()
     }
 
-    fn name(&self) -> &str { "sim_zmq" }
+    fn name(&self) -> &str {
+        "sim_zmq"
+    }
 }
 
 // ======================== Tests ========================
@@ -368,14 +422,20 @@ mod tests {
     #[test]
     fn compute_steering_zero_velocity_returns_zero() {
         let ctrl = SimZmqVehicleController::new();
-        let cmd = MotorCommand { linear_vel: 0.0, angular_vel: 1.0 };
+        let cmd = MotorCommand {
+            linear_vel: 0.0,
+            angular_vel: 1.0,
+        };
         assert_eq!(ctrl.compute_steering(&cmd), 0.0);
     }
 
     #[test]
     fn compute_steering_left_turn_positive() {
         let ctrl = SimZmqVehicleController::new();
-        let cmd = MotorCommand { linear_vel: 0.5, angular_vel: 0.5 };
+        let cmd = MotorCommand {
+            linear_vel: 0.5,
+            angular_vel: 0.5,
+        };
         let s = ctrl.compute_steering(&cmd);
         assert!(s > 0.0 && s <= 0.48);
     }
@@ -383,16 +443,22 @@ mod tests {
     #[test]
     fn compute_steering_right_turn_negative() {
         let ctrl = SimZmqVehicleController::new();
-        let cmd = MotorCommand { linear_vel: 0.5, angular_vel: -0.5 };
+        let cmd = MotorCommand {
+            linear_vel: 0.5,
+            angular_vel: -0.5,
+        };
         let s = ctrl.compute_steering(&cmd);
-        assert!(s < 0.0 && s >= -0.48);
+        assert!((-0.48..0.0).contains(&s));
     }
 
     #[test]
     fn compute_steering_clamps_to_max() {
         let ctrl = SimZmqVehicleController::new();
         // Huge angular for small linear → raw atan approaches π/2, must clamp.
-        let cmd = MotorCommand { linear_vel: 0.01, angular_vel: 5.0 };
+        let cmd = MotorCommand {
+            linear_vel: 0.01,
+            angular_vel: 5.0,
+        };
         let s = ctrl.compute_steering(&cmd);
         assert!((s - 0.48).abs() < 1e-5);
     }
@@ -400,11 +466,15 @@ mod tests {
     #[test]
     fn compute_steering_honors_custom_wheelbase() {
         let ctrl = SimZmqVehicleController::with_kinematics(SimAckermannConfig {
-            wheelbase: 1.0, max_steering_angle: 1.0,
+            wheelbase: 1.0,
+            max_steering_angle: 1.0,
         });
-        let cmd = MotorCommand { linear_vel: 1.0, angular_vel: 1.0 };
-        // atan(1 * 1 / 1) = π/4 ≈ 0.7854
-        assert!((ctrl.compute_steering(&cmd) - 0.7854).abs() < 1e-3);
+        let cmd = MotorCommand {
+            linear_vel: 1.0,
+            angular_vel: 1.0,
+        };
+        // atan(1 * 1 / 1) = π/4
+        assert!((ctrl.compute_steering(&cmd) - std::f32::consts::FRAC_PI_4).abs() < 1e-3);
     }
 
     // ---- Fault injection ----
@@ -420,7 +490,9 @@ mod tests {
     #[test]
     fn drop_rate_one_always_drops() {
         let src = SimZmqSensorSource::with_faults(SimFaultConfig {
-            camera_drop_rate: 1.0, seed: 42, ..Default::default()
+            camera_drop_rate: 1.0,
+            seed: 42,
+            ..Default::default()
         });
         for _ in 0..100 {
             assert!(src.should_drop(src.faults.camera_drop_rate));
@@ -430,7 +502,9 @@ mod tests {
     #[test]
     fn drop_rate_half_is_approximate_half() {
         let src = SimZmqSensorSource::with_faults(SimFaultConfig {
-            camera_drop_rate: 0.5, seed: 12345, ..Default::default()
+            camera_drop_rate: 0.5,
+            seed: 12345,
+            ..Default::default()
         });
         let drops = (0..10_000)
             .filter(|_| src.should_drop(src.faults.camera_drop_rate))
@@ -465,7 +539,11 @@ mod tests {
     fn controller_feedback_drop_rate_one_always_drops() {
         let ctrl = SimZmqVehicleController::with_config(
             SimAckermannConfig::default(),
-            SimFaultConfig { feedback_drop_rate: 1.0, seed: 99, ..Default::default() },
+            SimFaultConfig {
+                feedback_drop_rate: 1.0,
+                seed: 99,
+                ..Default::default()
+            },
         );
         for _ in 0..100 {
             assert!(ctrl.should_drop(ctrl.faults.feedback_drop_rate));
@@ -474,7 +552,10 @@ mod tests {
 
     #[test]
     fn is_active_detects_feedback_drop() {
-        let cfg = SimFaultConfig { feedback_drop_rate: 0.2, ..Default::default() };
+        let cfg = SimFaultConfig {
+            feedback_drop_rate: 0.2,
+            ..Default::default()
+        };
         assert!(cfg.is_active());
     }
 }
