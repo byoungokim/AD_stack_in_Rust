@@ -18,6 +18,7 @@ pub mod types;
 pub mod limo_hw;
 pub mod sim_zmq;
 pub mod dummy;
+pub mod protocols;
 
 pub use types::*;
 

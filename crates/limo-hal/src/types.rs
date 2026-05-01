@@ -33,7 +33,7 @@ pub struct LidarScan {
 }
 
 /// Single IMU measurement.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ImuReading {
     pub timestamp_ns: u64,
     pub linear_acceleration: Vector3<f64>,
