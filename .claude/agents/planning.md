@@ -26,10 +26,12 @@ Also relevant:
 
 - Behavior planner: state machine (Idle → Following → Approaching → GoalReached → ObstacleAvoidance → EmergencyStop)
 - Global planner: Hybrid A* with Ackermann motion primitives on (x,y,θ)
-- Local planner: DWA primary (reactive, <30ms) + MPC fallback (tight maneuvers)
-- E2E inference: ONNX/TensorRT model for end-to-end driving
-- Pipeline arbitrator: selects traditional vs E2E, applies safety envelope
-- Scenario integration: receives goals from CH8, advances through waypoints, publishes status on CH9
+- Local planner: DWA primary (reactive, <30ms) + MPC fallback (tight maneuvers). `compute()` returns `LocalPlan { command, trajectory }` — the trajectory is forward-integrated for CH10 visualization and tracker feed-forward.
+- E2E inference: ONNX/TensorRT model for end-to-end driving (currently stubbed; awaits trained model)
+- Pipeline arbitrator: selects traditional vs E2E, applies safety envelope. Falls back to traditional when E2E confidence < `e2e_confidence_threshold`; emits emergency stop when traditional fallback itself is below `fallback_min_confidence`. Shadow mode runs both and tags `source = Shadow` while propagating the traditional command.
+- Wire encoding: `arbitrator::encode_control_command(&ArbitratorOutput, seq, ts)` produces the `limo_proto::ControlCommand` published on CH2.
+- Config validation at startup: `ArbitratorConfig::validate()` rejects negative envelope values and out-of-range confidence thresholds.
+- Scenario integration: receives goals from CH8, advances through waypoints, publishes status on CH9.
 
 ## Architecture Context
 
@@ -54,6 +56,7 @@ WorldState (CH1) → Behavior → Global Planner → Local Planner → Arbitrato
 
 - Language: Rust
 - Write unit tests for all planner algorithms
-- Never bypass the safety envelope in the arbitrator
+- Never bypass the safety envelope in the arbitrator; validate config at startup (fail loud on nonsense YAML)
 - Use `serde` for YAML-configurable parameters
 - Coordinate with Architect Agent for any proto/channel changes
+- Keep wire encoding (`encode_control_command`) separate from the main loop so it stays unit-testable

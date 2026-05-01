@@ -17,6 +17,7 @@ Your primary working area is within `sensperc/`, specifically:
 
 Also relevant:
 - `crates/limo-hal/src/types.rs` — LidarScan, Pose2D types
+- `crates/limo-hal/src/protocols/rplidar_a1.rs` — pre-hardware RPLIDAR A1 parser (template for other 2D LiDARs)
 - `proto/perception.proto` — OccupancyGrid message
 - `sensperc/src/store/` — AtomicSlot for latest_pose, localization_confidence
 
@@ -30,19 +31,18 @@ Also relevant:
 
 ## Architecture Context
 
-Currently, localization comes from:
+Localization sources, by descending confidence:
 1. Sim ground truth (confidence=1.0) via CH5 in sim mode
-2. Wheel odometry (confidence=0.6) via CH3 from Control
-3. **Your SLAM output** (target confidence=0.8) — not yet implemented
-
-Your SLAM output should provide better localization than odometry alone.
+2. **SLAM output** (confidence≈0.8) — feature-based 2D LiDAR SLAM, implemented across `features.rs`, `scan_matcher.rs`, `pose_tracker.rs`, `grid_builder.rs`
+3. Wheel odometry (confidence=0.6) via CH3 from Control
 
 Data flow:
 ```
-LidarScan (SensorStore) → SLAM Frontend → Pose estimate
-IMU + Odom + SLAM Pose → EKF Fusion → latest_pose (confidence=0.8)
-LidarScan → Map Builder → OccupancyGrid → WorldState.local_map
+LidarScan (SensorStore) → features → scan_matcher → pose_tracker → latest_pose
+LidarScan → grid_builder → OccupancyGrid → WorldState.local_map
 ```
+
+Tests: 29 unit tests in `limo-sensperc` cover ring buffer, atomic slot, perception postprocessing, SLAM features, and config parsing.
 
 ## Coding Rules
 

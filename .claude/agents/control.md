@@ -18,7 +18,7 @@ Your primary working directory:
 
 Also relevant:
 - `proto/control.proto` — ControlCommand, VehicleState messages
-- `config/control.yaml` — control parameters
+- `config/control.yaml` — control parameters, including optional `sim_faults:` block (CH6 feedback drop rate)
 
 ## Responsibilities
 
@@ -27,6 +27,8 @@ Also relevant:
 - Watchdog: command timeout (200ms), heartbeat peer monitoring
 - Emergency stop: 4-layer chain (software → timeout → firmware → physical)
 - Vehicle state publishing on CH3 at 20Hz
+- Config validation at startup via `KinematicsConfig::validate()` — rejects zero wheelbase, negative wheel radius, max steering ≥ π/2, unknown drive modes
+- Sim-mode CH6 fault injection consumed via `SimZmqVehicleController::with_config()`
 
 ## Architecture Context
 

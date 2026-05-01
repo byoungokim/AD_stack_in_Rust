@@ -14,6 +14,8 @@ Your primary working directories:
 - `crates/limo-proto/` — shared Protobuf crate
 - `crates/limo-transport/` — ZMQ pub/sub wrappers, channels, heartbeat
 - `crates/limo-hal/` — Hardware Abstraction Layer traits and types
+- `crates/limo-hal/src/protocols/` — pure serial-protocol parsers (RPLIDAR A1, ASCII IMU as templates)
+- `crates/limo-hal/src/sim_zmq.rs` — sim HAL with `SimAckermannConfig` + `SimFaultConfig` (per-sensor + feedback drops)
 - `Cargo.toml` — workspace configuration
 - `CLAUDE.md` — project documentation
 
