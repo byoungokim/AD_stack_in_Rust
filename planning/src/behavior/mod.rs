@@ -72,6 +72,9 @@ pub struct Goal {
     pub x: f64,
     pub y: f64,
     pub theta: f64,
+    /// Per-goal arrival tolerance in meters (e.g. from a scenario waypoint).
+    /// Falls back to `BehaviorConfig::goal_tolerance` when None.
+    pub tolerance: Option<f64>,
 }
 
 /// Input to the behavior planner from perception.
@@ -119,6 +122,14 @@ impl BehaviorPlanner {
         );
         self.goal = Some(goal);
         self.state = DrivingState::Following;
+    }
+
+    /// Arrival tolerance for a goal: per-goal value if set (and positive),
+    /// otherwise the configured default.
+    fn arrival_tolerance(&self, goal: &Goal) -> f64 {
+        goal.tolerance
+            .filter(|t| *t > 0.0)
+            .unwrap_or(self.config.goal_tolerance)
     }
 
     pub fn clear_goal(&mut self) {
@@ -183,7 +194,7 @@ impl BehaviorPlanner {
                 if let Some(goal) = &self.goal {
                     let dist = distance(input.robot_x, input.robot_y, goal.x, goal.y);
 
-                    if dist < self.config.goal_tolerance {
+                    if dist < self.arrival_tolerance(goal) {
                         self.state = DrivingState::GoalReached;
                     } else if dist < self.config.approach_distance {
                         self.state = DrivingState::Approaching;
@@ -197,7 +208,7 @@ impl BehaviorPlanner {
             DrivingState::Approaching => {
                 if let Some(goal) = &self.goal {
                     let dist = distance(input.robot_x, input.robot_y, goal.x, goal.y);
-                    if dist < self.config.goal_tolerance {
+                    if dist < self.arrival_tolerance(goal) {
                         self.state = DrivingState::GoalReached;
                     }
                 }
@@ -269,6 +280,7 @@ mod tests {
             x: 5.0,
             y: 0.0,
             theta: 0.0,
+            tolerance: None,
         });
         let out = bp.update(&default_input());
         assert_eq!(out.state, DrivingState::Following);
@@ -282,6 +294,7 @@ mod tests {
             x: 0.05,
             y: 0.05,
             theta: 0.0,
+            tolerance: None,
         });
 
         let out = bp.update(&default_input());
@@ -296,6 +309,7 @@ mod tests {
             x: 5.0,
             y: 0.0,
             theta: 0.0,
+            tolerance: None,
         });
 
         let mut input = default_input();
@@ -312,6 +326,7 @@ mod tests {
             x: 5.0,
             y: 0.0,
             theta: 0.0,
+            tolerance: None,
         });
         bp.update(&default_input()); // transition to Following
 
@@ -320,5 +335,50 @@ mod tests {
         let out = bp.update(&input);
         assert_eq!(out.state, DrivingState::ObstacleAvoidance);
         assert!(out.desired_speed < 0.5); // reduced speed
+    }
+
+    #[test]
+    fn test_per_goal_tolerance_overrides_config() {
+        // Goal at 0.2m: outside the config default (0.15) but inside the
+        // per-goal tolerance (0.3) -> must count as reached.
+        let mut bp = BehaviorPlanner::new(BehaviorConfig::default());
+        bp.set_goal(Goal {
+            x: 0.2,
+            y: 0.0,
+            theta: 0.0,
+            tolerance: Some(0.3),
+        });
+        let out = bp.update(&default_input());
+        assert_eq!(out.state, DrivingState::GoalReached);
+    }
+
+    #[test]
+    fn test_config_tolerance_when_goal_has_none() {
+        // Same 0.2m distance without a per-goal tolerance -> not reached
+        // (falls back to config 0.15), robot keeps approaching.
+        let mut bp = BehaviorPlanner::new(BehaviorConfig::default());
+        bp.set_goal(Goal {
+            x: 0.2,
+            y: 0.0,
+            theta: 0.0,
+            tolerance: None,
+        });
+        let out = bp.update(&default_input());
+        assert_eq!(out.state, DrivingState::Approaching);
+    }
+
+    #[test]
+    fn test_nonpositive_goal_tolerance_falls_back_to_config() {
+        // A zero tolerance (unset proto field) must not make the goal
+        // unreachable; it falls back to the config default.
+        let mut bp = BehaviorPlanner::new(BehaviorConfig::default());
+        bp.set_goal(Goal {
+            x: 0.05,
+            y: 0.0,
+            theta: 0.0,
+            tolerance: Some(0.0),
+        });
+        let out = bp.update(&default_input());
+        assert_eq!(out.state, DrivingState::GoalReached);
     }
 }

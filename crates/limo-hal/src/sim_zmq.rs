@@ -25,6 +25,8 @@ use crate::{
 pub struct SimAckermannConfig {
     pub wheelbase: f64,
     pub max_steering_angle: f64,
+    pub track_width: f64,
+    pub wheel_radius: f64,
 }
 
 impl Default for SimAckermannConfig {
@@ -32,6 +34,8 @@ impl Default for SimAckermannConfig {
         Self {
             wheelbase: 0.2,
             max_steering_angle: 0.48,
+            track_width: 0.172,
+            wheel_radius: 0.045,
         }
     }
 }
@@ -323,6 +327,34 @@ impl SimZmqVehicleController {
         ) as f32
     }
 
+    /// Synthesize wheel RPMs and a steering angle from the sim's body twist,
+    /// so control's odometry integrates sim motion exactly as it would real
+    /// encoder feedback. `reported_steering` from the sim wins when nonzero
+    /// (the Gazebo bridge leaves it at 0).
+    /// Returns (left_rpm, right_rpm, steering_angle).
+    fn synthesize_feedback(
+        &self,
+        linear_vel: f64,
+        angular_vel: f64,
+        reported_steering: f32,
+    ) -> (f32, f32, f32) {
+        let half_track = self.kinematics.track_width / 2.0;
+        let vel_to_rpm = |vel: f64| {
+            (vel * 60.0 / (2.0 * std::f64::consts::PI * self.kinematics.wheel_radius)) as f32
+        };
+        let left_rpm = vel_to_rpm(linear_vel - angular_vel * half_track);
+        let right_rpm = vel_to_rpm(linear_vel + angular_vel * half_track);
+        let steering = if reported_steering.abs() > 1e-6 {
+            reported_steering
+        } else {
+            self.compute_steering(&MotorCommand {
+                linear_vel,
+                angular_vel,
+            })
+        };
+        (left_rpm, right_rpm, steering)
+    }
+
     fn poll_feedback(&mut self) {
         loop {
             let vs = match self.ch6_sub.as_mut() {
@@ -338,10 +370,17 @@ impl SimZmqVehicleController {
             if self.should_drop(self.faults.feedback_drop_rate) {
                 continue;
             }
+            let (linear_vel, angular_vel) = vs
+                .velocity
+                .as_ref()
+                .map(|t| (t.linear_x, t.angular_z))
+                .unwrap_or((0.0, 0.0));
+            let (left_wheel_rpm, right_wheel_rpm, steering_angle) =
+                self.synthesize_feedback(linear_vel, angular_vel, vs.steering_angle);
             self.latest_feedback = Some(ChassisFeedback {
-                left_wheel_rpm: 0.0,
-                right_wheel_rpm: 0.0,
-                steering_angle: vs.steering_angle,
+                left_wheel_rpm,
+                right_wheel_rpm,
+                steering_angle,
                 battery_voltage: vs.battery_voltage,
                 error_code: 0,
                 timestamp_ns: vs.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0),
@@ -468,6 +507,7 @@ mod tests {
         let ctrl = SimZmqVehicleController::with_kinematics(SimAckermannConfig {
             wheelbase: 1.0,
             max_steering_angle: 1.0,
+            ..Default::default()
         });
         let cmd = MotorCommand {
             linear_vel: 1.0,
@@ -475,6 +515,58 @@ mod tests {
         };
         // atan(1 * 1 / 1) = π/4
         assert!((ctrl.compute_steering(&cmd) - std::f32::consts::FRAC_PI_4).abs() < 1e-3);
+    }
+
+    // ---- Feedback synthesis ----
+
+    /// Wheel velocity in m/s recovered from a synthesized RPM.
+    fn rpm_to_vel(rpm: f32, wheel_radius: f64) -> f64 {
+        rpm as f64 * 2.0 * std::f64::consts::PI * wheel_radius / 60.0
+    }
+
+    #[test]
+    fn synthesize_feedback_straight_line() {
+        let ctrl = SimZmqVehicleController::new();
+        let cfg = SimAckermannConfig::default();
+        let (left, right, steering) = ctrl.synthesize_feedback(0.5, 0.0, 0.0);
+        assert!((left - right).abs() < 1e-6);
+        assert!((rpm_to_vel(left, cfg.wheel_radius) - 0.5).abs() < 1e-6);
+        assert_eq!(steering, 0.0);
+    }
+
+    #[test]
+    fn synthesize_feedback_turn_roundtrips_twist() {
+        // Differential model must recover the original (v, ω) exactly:
+        // v = (v_l + v_r)/2, ω = (v_r - v_l)/track.
+        let ctrl = SimZmqVehicleController::new();
+        let cfg = SimAckermannConfig::default();
+        let (v, w) = (0.4, 0.8);
+        let (left, right, steering) = ctrl.synthesize_feedback(v, w, 0.0);
+        let (lv, rv) = (
+            rpm_to_vel(left, cfg.wheel_radius),
+            rpm_to_vel(right, cfg.wheel_radius),
+        );
+        assert!(((lv + rv) / 2.0 - v).abs() < 1e-4);
+        assert!(((rv - lv) / cfg.track_width - w).abs() < 1e-4);
+        // Ackermann model must also recover ω: v·tan(δ)/L with δ = atan(ωL/v).
+        let w_ackermann = v * (steering as f64).tan() / cfg.wheelbase;
+        assert!((w_ackermann - w).abs() < 1e-4);
+    }
+
+    #[test]
+    fn synthesize_feedback_prefers_reported_steering() {
+        let ctrl = SimZmqVehicleController::new();
+        let (_, _, steering) = ctrl.synthesize_feedback(0.5, 0.8, 0.2);
+        assert_eq!(steering, 0.2);
+    }
+
+    #[test]
+    fn synthesize_feedback_stationary_is_zero() {
+        let ctrl = SimZmqVehicleController::new();
+        let (left, right, steering) = ctrl.synthesize_feedback(0.0, 0.0, 0.0);
+        assert_eq!(left, 0.0);
+        assert_eq!(right, 0.0);
+        assert_eq!(steering, 0.0);
     }
 
     // ---- Fault injection ----

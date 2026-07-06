@@ -197,6 +197,7 @@ fn main() -> Result<()> {
                             x: pose.x,
                             y: pose.y,
                             theta: pose.theta,
+                            tolerance: waypoint_tolerance(wp),
                         });
                         info!(
                             "Scenario started: type={}, {} waypoints, first='{}' ({:.1},{:.1})",
@@ -302,6 +303,7 @@ fn main() -> Result<()> {
                         x: pose.x,
                         y: pose.y,
                         theta: pose.theta,
+                        tolerance: waypoint_tolerance(wp),
                     });
                     info!(
                         "Advancing to waypoint {}/{}: '{}' ({:.1},{:.1})",
@@ -522,6 +524,12 @@ fn build_robot_state(
     }
 
     RobotState::default()
+}
+
+/// Per-waypoint arrival tolerance from a scenario goal; None when the proto
+/// field is unset (0.0) so the behavior planner falls back to its config.
+fn waypoint_tolerance(wp: &limo_proto::NavigationGoal) -> Option<f64> {
+    (wp.goal_tolerance > 0.0).then_some(wp.goal_tolerance as f64)
 }
 
 fn extract_obstacles(world: &Option<limo_proto::WorldState>) -> Vec<Obstacle> {
