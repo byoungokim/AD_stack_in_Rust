@@ -18,6 +18,7 @@ fn send_command_publishes_correct_steering_on_ch7() {
     let mut ctrl = SimZmqVehicleController::with_kinematics(SimAckermannConfig {
         wheelbase: 0.2,
         max_steering_angle: 0.48,
+        ..Default::default()
     });
     ctrl.start().expect("start controller");
 

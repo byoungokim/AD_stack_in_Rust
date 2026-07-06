@@ -104,6 +104,8 @@ fn main() -> Result<()> {
             SimAckermannConfig {
                 wheelbase: config.kinematics.wheelbase,
                 max_steering_angle: config.kinematics.max_steering_angle,
+                track_width: config.kinematics.track_width,
+                wheel_radius: config.kinematics.wheel_radius,
             },
             config.sim_faults.clone(),
         ))
