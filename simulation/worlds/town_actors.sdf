@@ -1,0 +1,535 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="limo_town_actors">
+
+    <!-- GUI configuration -->
+    <gui fullscreen="0">
+      <plugin filename="MinimalScene" name="3D View">
+        <gz-gui>
+          <title>3D View</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="string" key="state">docked</property>
+        </gz-gui>
+        <engine>ogre2</engine>
+        <scene>scene</scene>
+        <ambient_light>0.4 0.4 0.4</ambient_light>
+        <background_color>0.8 0.8 0.8</background_color>
+        <camera_pose>-14 -14 18 0 0.7 0.78</camera_pose>
+      </plugin>
+      <plugin filename="GzSceneManager" name="Scene Manager"/>
+      <plugin filename="InteractiveViewControl" name="Interactive view"/>
+      <plugin filename="CameraTracking" name="Camera Tracking"/>
+      <plugin filename="MarkerManager" name="Marker Manager"/>
+      <plugin filename="WorldControl" name="World control">
+        <gz-gui>
+          <title>World control</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">72</property>
+          <property type="double" key="width">121</property>
+          <property type="double" key="z">1</property>
+          <property type="string" key="state">floating</property>
+          <anchors target="3D View">
+            <line own="left" target="left"/>
+            <line own="bottom" target="bottom"/>
+          </anchors>
+        </gz-gui>
+        <play_pause>true</play_pause>
+        <step>true</step>
+      </plugin>
+      <plugin filename="WorldStats" name="World stats">
+        <gz-gui>
+          <title>World stats</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">110</property>
+          <property type="double" key="width">290</property>
+          <property type="double" key="z">1</property>
+          <property type="string" key="state">floating</property>
+          <anchors target="3D View">
+            <line own="right" target="right"/>
+            <line own="bottom" target="bottom"/>
+          </anchors>
+        </gz-gui>
+        <sim_time>true</sim_time>
+        <real_time>true</real_time>
+        <real_time_factor>true</real_time_factor>
+        <iterations>true</iterations>
+      </plugin>
+      <plugin filename="EntityTree" name="Entity tree">
+        <gz-gui>
+          <property type="string" key="state">docked_collapsed</property>
+        </gz-gui>
+      </plugin>
+    </gui>
+
+    <!-- Physics -->
+    <physics name="1ms" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Plugins -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+
+    <!-- Sunlight -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <surface>
+            <friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode></friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material>
+            <ambient>0.45 0.45 0.45 1</ambient>
+            <diffuse>0.55 0.55 0.55 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============ TOWN: walls + building blocks ============ -->
+
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 10.0 0.25 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>20.0 0.2 0.5</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>20.0 0.2 0.5</size></box></geometry>
+          <material><ambient>0.8 0.3 0.1 1</ambient><diffuse>0.8 0.3 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -10.0 0.25 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>20.0 0.2 0.5</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>20.0 0.2 0.5</size></box></geometry>
+          <material><ambient>0.8 0.3 0.1 1</ambient><diffuse>0.8 0.3 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_east">
+      <static>true</static>
+      <pose>10.0 0 0.25 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>0.2 20.0 0.5</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.2 20.0 0.5</size></box></geometry>
+          <material><ambient>0.8 0.3 0.1 1</ambient><diffuse>0.8 0.3 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-10.0 0 0.25 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>0.2 20.0 0.5</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.2 20.0 0.5</size></box></geometry>
+          <material><ambient>0.8 0.3 0.1 1</ambient><diffuse>0.8 0.3 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_0">
+      <static>true</static>
+      <pose>-8.6 -8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 2.2 1.2</size></box></geometry>
+          <material><ambient>0.55 0.55 0.62 1</ambient><diffuse>0.55 0.55 0.62 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_1">
+      <static>true</static>
+      <pose>-8.6 -3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 3.0 1.2</size></box></geometry>
+          <material><ambient>0.65 0.55 0.45 1</ambient><diffuse>0.65 0.55 0.45 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_2">
+      <static>true</static>
+      <pose>-8.6 3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 3.0 1.2</size></box></geometry>
+          <material><ambient>0.5 0.6 0.55 1</ambient><diffuse>0.5 0.6 0.55 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_3">
+      <static>true</static>
+      <pose>-8.6 8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 2.2 1.2</size></box></geometry>
+          <material><ambient>0.6 0.5 0.6 1</ambient><diffuse>0.6 0.5 0.6 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_4">
+      <static>true</static>
+      <pose>-3.0 -8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 2.2 1.2</size></box></geometry>
+          <material><ambient>0.55 0.55 0.62 1</ambient><diffuse>0.55 0.55 0.62 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_5">
+      <static>true</static>
+      <pose>-3.0 -3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 3.0 1.2</size></box></geometry>
+          <material><ambient>0.65 0.55 0.45 1</ambient><diffuse>0.65 0.55 0.45 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_6">
+      <static>true</static>
+      <pose>-3.0 3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 3.0 1.2</size></box></geometry>
+          <material><ambient>0.5 0.6 0.55 1</ambient><diffuse>0.5 0.6 0.55 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_7">
+      <static>true</static>
+      <pose>-3.0 8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 2.2 1.2</size></box></geometry>
+          <material><ambient>0.6 0.5 0.6 1</ambient><diffuse>0.6 0.5 0.6 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_8">
+      <static>true</static>
+      <pose>3.0 -8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 2.2 1.2</size></box></geometry>
+          <material><ambient>0.55 0.55 0.62 1</ambient><diffuse>0.55 0.55 0.62 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_9">
+      <static>true</static>
+      <pose>3.0 -3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 3.0 1.2</size></box></geometry>
+          <material><ambient>0.65 0.55 0.45 1</ambient><diffuse>0.65 0.55 0.45 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_10">
+      <static>true</static>
+      <pose>3.0 3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 3.0 1.2</size></box></geometry>
+          <material><ambient>0.5 0.6 0.55 1</ambient><diffuse>0.5 0.6 0.55 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_11">
+      <static>true</static>
+      <pose>3.0 8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>3.0 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>3.0 2.2 1.2</size></box></geometry>
+          <material><ambient>0.6 0.5 0.6 1</ambient><diffuse>0.6 0.5 0.6 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_12">
+      <static>true</static>
+      <pose>8.6 -8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 2.2 1.2</size></box></geometry>
+          <material><ambient>0.55 0.55 0.62 1</ambient><diffuse>0.55 0.55 0.62 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_13">
+      <static>true</static>
+      <pose>8.6 -3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 3.0 1.2</size></box></geometry>
+          <material><ambient>0.65 0.55 0.45 1</ambient><diffuse>0.65 0.55 0.45 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_14">
+      <static>true</static>
+      <pose>8.6 3.0 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 3.0 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 3.0 1.2</size></box></geometry>
+          <material><ambient>0.5 0.6 0.55 1</ambient><diffuse>0.5 0.6 0.55 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building_15">
+      <static>true</static>
+      <pose>8.6 8.6 0.6 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>2.2 2.2 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>2.2 2.2 1.2</size></box></geometry>
+          <material><ambient>0.6 0.5 0.6 1</ambient><diffuse>0.6 0.5 0.6 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="parked_box_1">
+      <static>true</static>
+      <pose>-3.0 -0.85 0.15 0 0 0.1</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>0.5 0.3 0.3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.5 0.3 0.3</size></box></geometry>
+          <material><ambient>0.9 0.1 0.1 1</ambient><diffuse>0.9 0.1 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="parked_box_2">
+      <static>true</static>
+      <pose>3.5 0.85 0.15 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>0.5 0.3 0.3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.5 0.3 0.3</size></box></geometry>
+          <material><ambient>0.9 0.1 0.1 1</ambient><diffuse>0.9 0.1 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="parked_box_3">
+      <static>true</static>
+      <pose>6.85 3.0 0.15 0 0 0.0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>0.3 0.5 0.3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>0.3 0.5 0.3</size></box></geometry>
+          <material><ambient>0.9 0.1 0.1 1</ambient><diffuse>0.9 0.1 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============ PEDESTRIAN ACTORS (scripted, kinematic) ============ -->
+
+    <actor name="ped_cross_west">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.9 0.75 0.2 1</ambient><diffuse>0.9 0.75 0.2 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>-4.0 -3.5 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>17.50</time><pose>-4.0 3.5 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>35.00</time><pose>-4.0 -3.5 0 0 0 1.571</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="ped_cross_mid">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.9 0.75 0.2 1</ambient><diffuse>0.9 0.75 0.2 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>3.0 3.5 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>20.00</time><pose>3.0 -3.5 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>40.00</time><pose>3.0 3.5 0 0 0 -1.571</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="ped_avenue_1">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.2 0.55 0.9 1</ambient><diffuse>0.2 0.55 0.9 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>-7.0 0.7 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>31.11</time><pose>7.0 0.7 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>62.22</time><pose>-7.0 0.7 0 0 0 0.000</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="ped_avenue_2">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.2 0.55 0.9 1</ambient><diffuse>0.2 0.55 0.9 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>7.0 -0.7 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>28.00</time><pose>-7.0 -0.7 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>56.00</time><pose>7.0 -0.7 0 0 0 3.142</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="ped_block_ccw">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.9 0.75 0.2 1</ambient><diffuse>0.9 0.75 0.2 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>0.7 0.7 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>11.50</time><pose>0.7 5.3 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>23.00</time><pose>5.3 5.3 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>34.50</time><pose>5.3 0.7 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>46.00</time><pose>0.7 0.7 0 0 0 1.571</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="ped_block_ccw2">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.2 0.55 0.9 1</ambient><diffuse>0.2 0.55 0.9 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>5.3 5.3 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>11.50</time><pose>5.3 0.7 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>23.00</time><pose>0.7 0.7 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>34.50</time><pose>0.7 5.3 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>46.00</time><pose>5.3 5.3 0 0 0 -1.571</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="ped_cross_north">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.9 0.75 0.2 1</ambient><diffuse>0.9 0.75 0.2 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>3.0 8.0 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>10.86</time><pose>3.0 4.2 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>21.71</time><pose>3.0 8.0 0 0 0 -1.571</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="ped_cross_east">
+      <link name="body">
+        <visual name="visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.2 0.55 0.9 1</ambient><diffuse>0.2 0.55 0.9 1</diffuse></material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+        <waypoint><time>0.00</time><pose>8.0 3.0 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>10.86</time><pose>4.2 3.0 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>21.71</time><pose>8.0 3.0 0 0 0 3.142</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <!-- ============ LIMO PRO ROBOT ============ -->
+    <!-- Spawn on the west end of the main avenue, facing east.
+         Planning/odom frame origin = this spawn pose (yaw 0), so
+         scenario waypoints are world coords minus (-8.0, 0.0). -->
+    <include>
+      <uri>model://limo_pro</uri>
+      <name>limo</name>
+      <pose>-8.0 0.0 0.055 0 0 0</pose>
+    </include>
+
+  </world>
+</sdf>

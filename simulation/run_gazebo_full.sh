@@ -4,9 +4,11 @@
 # macOS requires separate server/GUI processes for Gazebo.
 # This script launches everything and sends a scenario after startup.
 #
-# Usage: ./simulation/run_gazebo_full.sh [preset_name]
+# Usage: ./simulation/run_gazebo_full.sh [preset_name_or_scenario_file]
 #   preset_name: straight_line, square_patrol, slalom, parking, figure_eight
+#   scenario_file: path to a scenario YAML (e.g. config/scenarios/town_patrol.yaml)
 #   default: square_patrol
+#   WORLD env var overrides the world SDF (default: simulation/worlds/test_track.sdf)
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -14,6 +16,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 PRESET="${1:-square_patrol}"
+WORLD="${WORLD:-$PROJECT_DIR/simulation/worlds/test_track.sdf}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -58,7 +61,7 @@ export GZ_SIM_RESOURCE_PATH="$PROJECT_DIR/simulation/models"
 
 # === 1. Gazebo Server ===
 log "Starting Gazebo server..."
-gz sim -s -r "$PROJECT_DIR/simulation/worlds/test_track.sdf" &
+gz sim -s -r "$WORLD" &
 PIDS+=($!)
 sleep 3
 
@@ -96,7 +99,11 @@ PIDS+=($!)
 
 # === 6. Send Scenario ===
 log "Sending scenario: ${YELLOW}${PRESET}${NC}"
-./target/release/limo_scenario --preset "$PRESET" &
+if [[ -f "$PRESET" ]]; then
+    ./target/release/limo_scenario --file "$PRESET" &
+else
+    ./target/release/limo_scenario --preset "$PRESET" &
+fi
 PIDS+=($!)
 
 echo ""
