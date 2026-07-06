@@ -3,6 +3,7 @@
 behavior:
   rate_hz: 5
   default_speed: 0.5        # m/s
+  goal_tolerance: 0.25      # meters; must be reachable before DWA speed decays to 0 near the goal
 
 global_planner:
   rate_hz: 1

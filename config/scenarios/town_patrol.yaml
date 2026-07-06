@@ -1,0 +1,38 @@
+# Town patrol scenario for simulation/worlds/town_actors.sdf
+#
+# Frame note: planning/odom frame origin is the robot spawn pose in the world
+# (-8, 0, yaw 0), so these waypoints are world coordinates + (8, 0).
+# Route: east along the main avenue, then loop the block bounded by
+# world streets x=[0,6], y=[0,6], counter-clockwise, against pedestrian flow.
+name: town_patrol
+scenario_type: patrol
+speed_limit: 0.4
+
+waypoints:
+  - x: 8.0
+    y: 0.0
+    theta: 0.0
+    tolerance: 0.3
+    speed: 0.35
+    label: "center_intersection"
+
+  - x: 14.0
+    y: 0.0
+    theta: 1.57
+    tolerance: 0.3
+    speed: 0.35
+    label: "east_intersection"
+
+  - x: 14.0
+    y: 6.0
+    theta: 3.14
+    tolerance: 0.3
+    speed: 0.35
+    label: "northeast_corner"
+
+  - x: 8.0
+    y: 6.0
+    theta: -1.57
+    tolerance: 0.3
+    speed: 0.35
+    label: "north_intersection"
