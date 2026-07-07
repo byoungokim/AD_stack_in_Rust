@@ -1,0 +1,166 @@
+[
+ {
+  "name": "wall_north",
+  "type": "box",
+  "x": 0.0,
+  "y": 4.0,
+  "yaw": 0.0,
+  "sx": 21.0,
+  "sy": 0.2
+ },
+ {
+  "name": "wall_south",
+  "type": "box",
+  "x": 0.0,
+  "y": -4.0,
+  "yaw": 0.0,
+  "sx": 21.0,
+  "sy": 0.2
+ },
+ {
+  "name": "wall_east",
+  "type": "box",
+  "x": 10.5,
+  "y": 0.0,
+  "yaw": 0.0,
+  "sx": 0.2,
+  "sy": 8.0
+ },
+ {
+  "name": "wall_west",
+  "type": "box",
+  "x": -10.5,
+  "y": 0.0,
+  "yaw": 0.0,
+  "sx": 0.2,
+  "sy": 8.0
+ },
+ {
+  "name": "corridor_north",
+  "type": "box",
+  "x": -5.3,
+  "y": 1.5,
+  "yaw": 0.0,
+  "sx": 5.8,
+  "sy": 0.15
+ },
+ {
+  "name": "corridor_south",
+  "type": "box",
+  "x": -5.3,
+  "y": -1.5,
+  "yaw": 0.0,
+  "sx": 5.8,
+  "sy": 0.15
+ },
+ {
+  "name": "slalom_cone_0",
+  "type": "cylinder",
+  "x": -7.4,
+  "y": 0.35,
+  "r": 0.15
+ },
+ {
+  "name": "slalom_cone_1",
+  "type": "cylinder",
+  "x": -6.2,
+  "y": -0.35,
+  "r": 0.15
+ },
+ {
+  "name": "slalom_cone_2",
+  "type": "cylinder",
+  "x": -5.0,
+  "y": 0.35,
+  "r": 0.15
+ },
+ {
+  "name": "slalom_cone_3",
+  "type": "cylinder",
+  "x": -3.8,
+  "y": -0.35,
+  "r": 0.15
+ },
+ {
+  "name": "slalom_cone_4",
+  "type": "cylinder",
+  "x": -2.9,
+  "y": 0.3,
+  "r": 0.15
+ },
+ {
+  "name": "gate_north",
+  "type": "box",
+  "x": -1.5,
+  "y": 2.7,
+  "yaw": 0.0,
+  "sx": 0.15,
+  "sy": 2.6
+ },
+ {
+  "name": "gate_south",
+  "type": "box",
+  "x": -1.5,
+  "y": -1.8,
+  "yaw": 0.0,
+  "sx": 0.15,
+  "sy": 4.4
+ },
+ {
+  "name": "clutter_box_a",
+  "type": "box",
+  "x": 5.0,
+  "y": 0.0,
+  "yaw": 0.0,
+  "sx": 0.4,
+  "sy": 0.4
+ },
+ {
+  "name": "clutter_cone_b",
+  "type": "cylinder",
+  "x": 5.9,
+  "y": 1.05,
+  "r": 0.15
+ },
+ {
+  "name": "clutter_box_c",
+  "type": "box",
+  "x": 6.8,
+  "y": 0.0,
+  "yaw": 0.4,
+  "sx": 0.4,
+  "sy": 0.4
+ },
+ {
+  "name": "clutter_cone_d",
+  "type": "cylinder",
+  "x": 7.7,
+  "y": -1.05,
+  "r": 0.15
+ },
+ {
+  "name": "clutter_box_e",
+  "type": "box",
+  "x": 7.4,
+  "y": 1.7,
+  "yaw": -0.3,
+  "sx": 0.4,
+  "sy": 0.4
+ },
+ {
+  "name": "clutter_cone_f",
+  "type": "cylinder",
+  "x": 8.6,
+  "y": 1.2,
+  "r": 0.15
+ },
+ {
+  "name": "clutter_box_g",
+  "type": "box",
+  "x": 9.3,
+  "y": -0.3,
+  "yaw": 0.0,
+  "sx": 0.4,
+  "sy": 0.4
+ }
+]
