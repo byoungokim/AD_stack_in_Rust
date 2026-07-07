@@ -289,41 +289,42 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
         let loc_confidence = store.localization_confidence.load().unwrap_or(0.0);
 
         // --- Simple LiDAR-based obstacle detection ---
-        // Convert nearby LiDAR points to obstacle detections in world frame
+        // Convert nearby LiDAR points to obstacle detections in world frame.
+        // Sampling is nearest-return-per-sector, NOT uniform step_by: the old
+        // step_by(len/50) downsample could drop the wall right beside the
+        // robot for whole cycles, letting the planner see free space there.
         let detections = if let Some(scan) = &latest_lidar {
-            let mut dets = Vec::new();
             let num_points = scan.ranges.len();
-            if num_points > 0 {
-                let angle_inc = if scan.angle_increment > 0.0 {
-                    scan.angle_increment
-                } else if num_points > 1 {
-                    (scan.angle_max - scan.angle_min) / (num_points - 1) as f32
-                } else {
-                    0.0
-                };
+            let angle_inc = if scan.angle_increment > 0.0 {
+                scan.angle_increment
+            } else if num_points > 1 {
+                (scan.angle_max - scan.angle_min) / (num_points - 1) as f32
+            } else {
+                0.0
+            };
 
-                for (i, &range) in scan.ranges.iter().enumerate() {
-                    // Only report close obstacles (< 3m)
-                    if range >= scan.range_min && range <= 3.0 {
-                        let angle = scan.angle_min + i as f32 * angle_inc;
-                        // Transform to world frame
-                        let wx = pose.x + range as f64 * (pose.theta + angle as f64).cos();
-                        let wy = pose.y + range as f64 * (pose.theta + angle as f64).sin();
-                        dets.push(limo_proto::Detection {
-                            object_class: limo_proto::ObjectClass::ObjectObstacle as i32,
-                            confidence: 0.8,
-                            bbox_image: None,
-                            position_world: Some(limo_proto::Point2D { x: wx, y: wy }),
-                            distance: range,
-                        });
-                    }
+            let dets = nearest_per_sector(
+                &scan.ranges,
+                scan.angle_min,
+                angle_inc,
+                scan.range_min,
+                MAX_OBSTACLE_RANGE,
+                OBSTACLE_SECTORS,
+            )
+            .into_iter()
+            .map(|(angle, range)| {
+                // Transform to world frame
+                let wx = pose.x + range as f64 * (pose.theta + angle as f64).cos();
+                let wy = pose.y + range as f64 * (pose.theta + angle as f64).sin();
+                limo_proto::Detection {
+                    object_class: limo_proto::ObjectClass::ObjectObstacle as i32,
+                    confidence: 0.8,
+                    bbox_image: None,
+                    position_world: Some(limo_proto::Point2D { x: wx, y: wy }),
+                    distance: range,
                 }
-            }
-            // Downsample to max 50 detections to limit bandwidth
-            if dets.len() > 50 {
-                let step = dets.len() / 50;
-                dets = dets.into_iter().step_by(step).collect();
-            }
+            })
+            .collect();
             Some(limo_proto::DetectionArray {
                 header: None,
                 detections: dets,
@@ -434,6 +435,43 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
     Ok(())
 }
 
+/// Obstacle detection range limit (meters) for lidar-derived detections.
+const MAX_OBSTACLE_RANGE: f32 = 3.0;
+/// Angular sectors for obstacle sampling. 72 sectors = 5° each: at the 3 m
+/// range limit a sector spans 0.26 m of arc, under the planner's 0.3 m
+/// inflation radius, so sampled wall points always merge into a continuous
+/// inflated barrier.
+const OBSTACLE_SECTORS: usize = 72;
+
+/// Keep the nearest valid return per angular sector.
+///
+/// Guarantees the closest obstacle in EVERY direction survives sampling —
+/// unlike uniform decimation, which can drop the return for the wall right
+/// beside the robot while keeping farther points elsewhere in the scan.
+/// Returns (beam angle, range) pairs, at most `num_sectors` of them.
+fn nearest_per_sector(
+    ranges: &[f32],
+    angle_min: f32,
+    angle_inc: f32,
+    range_min: f32,
+    range_max: f32,
+    num_sectors: usize,
+) -> Vec<(f32, f32)> {
+    let mut nearest: Vec<Option<(f32, f32)>> = vec![None; num_sectors];
+    let sector_width = std::f32::consts::TAU / num_sectors as f32;
+    for (i, &range) in ranges.iter().enumerate() {
+        if !(range >= range_min && range <= range_max) {
+            continue;
+        }
+        let angle = angle_min + i as f32 * angle_inc;
+        let idx = (angle.rem_euclid(std::f32::consts::TAU) / sector_width) as usize % num_sectors;
+        if nearest[idx].is_none_or(|(_, r)| range < r) {
+            nearest[idx] = Some((angle, range));
+        }
+    }
+    nearest.into_iter().flatten().collect()
+}
+
 fn now_ns() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -446,4 +484,72 @@ fn ctrlc_handler() {
         info!("Received Ctrl+C, shutting down...");
         SHUTDOWN.store(true, Ordering::Release);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::TAU;
+
+    /// A 360-beam scan (1°/beam) with all ranges out of detection range.
+    fn empty_scan() -> Vec<f32> {
+        vec![10.0; 360]
+    }
+
+    #[test]
+    fn nearest_wall_return_always_survives() {
+        // Dense far returns everywhere + one close "wall" return at 90°.
+        // Uniform decimation could drop it; sector sampling must not.
+        let mut ranges = vec![2.9_f32; 360];
+        ranges[90] = 0.4;
+        let out = nearest_per_sector(&ranges, 0.0, TAU / 360.0, 0.1, 3.0, 72);
+        assert!(out.iter().any(|&(_, r)| (r - 0.4).abs() < 1e-6));
+        // and the sector containing 90° reports the wall, not a 2.9m point
+        let sector_width = TAU / 72.0;
+        let wall_sector = ((90.0_f32.to_radians()) / sector_width) as usize;
+        let in_sector: Vec<_> = out
+            .iter()
+            .filter(|&&(a, _)| (a.rem_euclid(TAU) / sector_width) as usize == wall_sector)
+            .collect();
+        assert_eq!(in_sector.len(), 1);
+        assert!((in_sector[0].1 - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn keeps_nearest_within_a_sector() {
+        let mut ranges = empty_scan();
+        ranges[11] = 2.0; // 11° and 13° both sit inside the 10°-15° sector
+        ranges[13] = 1.0;
+        let out = nearest_per_sector(&ranges, 0.0, TAU / 360.0, 0.1, 3.0, 72);
+        assert_eq!(out.len(), 1);
+        assert!((out[0].1 - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn output_bounded_by_sector_count() {
+        let ranges = vec![1.5_f32; 360]; // everything in range
+        let out = nearest_per_sector(&ranges, 0.0, TAU / 360.0, 0.1, 3.0, 72);
+        assert_eq!(out.len(), 72);
+    }
+
+    #[test]
+    fn filters_out_of_range_returns() {
+        let mut ranges = empty_scan();
+        ranges[0] = 0.05; // below range_min
+        ranges[100] = 5.0; // above max
+        let out = nearest_per_sector(&ranges, 0.0, TAU / 360.0, 0.1, 3.0, 72);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn negative_angles_wrap_into_valid_sectors() {
+        // Scan starting at -π (common lidar convention) must not panic or
+        // alias sectors.
+        let mut ranges = empty_scan();
+        ranges[0] = 1.0; // beam at -π
+        ranges[359] = 2.0; // beam just below +π — same physical direction band
+        let out = nearest_per_sector(&ranges, -std::f32::consts::PI, TAU / 360.0, 0.1, 3.0, 72);
+        assert!(!out.is_empty());
+        assert!(out.iter().all(|&(_, r)| (0.1..=3.0).contains(&r)));
+    }
 }
