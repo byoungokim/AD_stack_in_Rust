@@ -43,6 +43,15 @@ pub struct DwaConfig {
     // Safety
     #[serde(default = "default_robot_radius")]
     pub robot_radius: f64, // meters, for collision checking
+
+    /// Executable-curvature envelope (1/m): sampled (v, w) pairs with
+    /// |w| > v * max_curvature are skipped. Must not exceed the arbitrator's
+    /// safety-envelope max_curvature nor the Ackermann steering limit
+    /// tan(max_steering)/wheelbase (2.6 for the Limo Pro) — otherwise DWA
+    /// verifies a trajectory, downstream clamps the command, and the real
+    /// arc swings wider than the verified one, clipping the inside of turns.
+    #[serde(default = "default_max_curvature")]
+    pub max_curvature: f64, // 1/m
 }
 
 fn default_max_speed() -> f64 {
@@ -84,6 +93,11 @@ fn default_obstacle_weight() -> f64 {
 fn default_robot_radius() -> f64 {
     0.2
 }
+fn default_max_curvature() -> f64 {
+    // Matches the arbitrator's safety-envelope default and sits inside the
+    // Limo Pro's Ackermann limit tan(0.48)/0.2 ≈ 2.6.
+    2.0
+}
 
 impl Default for DwaConfig {
     fn default() -> Self {
@@ -101,6 +115,7 @@ impl Default for DwaConfig {
             velocity_weight: default_velocity_weight(),
             obstacle_weight: default_obstacle_weight(),
             robot_radius: default_robot_radius(),
+            max_curvature: default_max_curvature(),
         }
     }
 }
@@ -164,6 +179,13 @@ impl DwaPlanner {
 
             for wi in 0..self.config.w_samples {
                 let w = w_min + wi as f64 * w_step;
+
+                // Only verify trajectories the steering can execute: pairs
+                // outside the curvature envelope would be clamped downstream
+                // and the real arc would differ from the simulated one.
+                if w.abs() > v * self.config.max_curvature + 1e-9 {
+                    continue;
+                }
 
                 // Simulate trajectory
                 let traj = self.simulate(state, v, w, obstacles);
@@ -319,6 +341,64 @@ mod tests {
         let cmd = planner.compute(&state, &path, &[], 0.5);
         assert!(cmd.linear_x > 0.0, "Should move forward");
         assert!(cmd.angular_z.abs() < 0.5, "Should be roughly straight");
+    }
+
+    #[test]
+    fn test_dwa_output_stays_inside_curvature_envelope() {
+        // Goal 90° to the side tempts a sharp turn; the command must still be
+        // executable: |w| <= v * max_curvature, so nothing downstream clamps
+        // it into a wider-than-verified arc.
+        let config = DwaConfig::default();
+        let max_curvature = config.max_curvature;
+        let planner = DwaPlanner::new(config);
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.4,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 0.0,
+            y: 2.0,
+            theta: std::f64::consts::FRAC_PI_2,
+            steering: 0.0,
+        }];
+
+        let cmd = planner.compute(&state, &path, &[], 0.5);
+        assert!(
+            cmd.angular_z.abs() <= cmd.linear_x * max_curvature + 1e-6,
+            "command (v={}, w={}) exceeds curvature envelope {}",
+            cmd.linear_x,
+            cmd.angular_z,
+            max_curvature
+        );
+    }
+
+    #[test]
+    fn test_dwa_stationary_cannot_spin_in_place() {
+        // Ackermann steering cannot rotate at v=0: from standstill the
+        // planner must not emit a pure-rotation command.
+        let planner = DwaPlanner::new(DwaConfig::default());
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.0,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: -1.0, // goal behind the robot
+            y: 0.5,
+            theta: 0.0,
+            steering: 0.0,
+        }];
+
+        let cmd = planner.compute(&state, &path, &[], 0.5);
+        assert!(
+            cmd.angular_z.abs() <= cmd.linear_x * DwaConfig::default().max_curvature + 1e-6,
+            "spin-in-place command is not executable by Ackermann steering"
+        );
     }
 
     #[test]
