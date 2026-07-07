@@ -153,7 +153,11 @@ fn main() -> Result<()> {
     // Short-term obstacle persistence: plan against the union of the last few
     // perception cycles so a real obstacle can't vanish between replans when
     // one scan's sample drops it or scan/pose skew during fast yaw shifts it.
-    let mut obstacle_memory = ObstacleMemory::new(5);
+    // Depth 3 (~0.3s at 10Hz): deep enough that a single-cycle dropout can't
+    // open a hole, shallow enough that smear from moving pedestrians doesn't
+    // freeze DWA in 1m gaps (depth 5 froze the robot: 87% of cycles with no
+    // feasible trajectory in the gauntlet slalom).
+    let mut obstacle_memory = ObstacleMemory::new(3);
 
     info!("Planning process running — entering main loop");
 
