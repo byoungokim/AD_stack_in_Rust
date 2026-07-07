@@ -150,6 +150,11 @@ fn main() -> Result<()> {
     // 400x400 at 0.1m = 40m×40m, covers from -20 to +20
     let mut grid = OccupancyGrid::new(400, 400, 0.1, -20.0, -20.0);
 
+    // Short-term obstacle persistence: plan against the union of the last few
+    // perception cycles so a real obstacle can't vanish between replans when
+    // one scan's sample drops it or scan/pose skew during fast yaw shifts it.
+    let mut obstacle_memory = ObstacleMemory::new(5);
+
     info!("Planning process running — entering main loop");
 
     while !SHUTDOWN.load(Ordering::Acquire) {
@@ -218,7 +223,8 @@ fn main() -> Result<()> {
 
         // --- 4. Build robot state and update grid ---
         let robot_state = build_robot_state(&world_state, &vehicle_state);
-        let obstacles = extract_obstacles(&world_state);
+        obstacle_memory.push(extract_obstacles(&world_state));
+        let obstacles = obstacle_memory.union();
 
         // Populate occupancy grid from detected obstacles
         // Clear grid each cycle and re-populate (rolling local map)
@@ -532,6 +538,37 @@ fn waypoint_tolerance(wp: &limo_proto::NavigationGoal) -> Option<f64> {
     (wp.goal_tolerance > 0.0).then_some(wp.goal_tolerance as f64)
 }
 
+/// Rolling memory of recent obstacle detections. Planning runs against the
+/// union of the last `depth` frames (~0.5 s at 10 Hz): an obstacle that drops
+/// out of a single cycle still blocks trajectories, at the cost of ~depth×
+/// points and slightly wider phantom footprints around moving obstacles.
+/// Empty frames still advance the window, so stale points decay in `depth`
+/// cycles if perception stops reporting them.
+struct ObstacleMemory {
+    depth: usize,
+    frames: std::collections::VecDeque<Vec<Obstacle>>,
+}
+
+impl ObstacleMemory {
+    fn new(depth: usize) -> Self {
+        Self {
+            depth,
+            frames: std::collections::VecDeque::with_capacity(depth),
+        }
+    }
+
+    fn push(&mut self, frame: Vec<Obstacle>) {
+        if self.frames.len() == self.depth {
+            self.frames.pop_front();
+        }
+        self.frames.push_back(frame);
+    }
+
+    fn union(&self) -> Vec<Obstacle> {
+        self.frames.iter().flatten().cloned().collect()
+    }
+}
+
 fn extract_obstacles(world: &Option<limo_proto::WorldState>) -> Vec<Obstacle> {
     let mut obstacles = Vec::new();
     if let Some(ws) = world {
@@ -558,4 +595,42 @@ fn ctrlc_handler() {
         info!("Received Ctrl+C, shutting down...");
         SHUTDOWN.store(true, Ordering::Release);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pt(x: f64, y: f64) -> Obstacle {
+        Obstacle { x, y }
+    }
+
+    #[test]
+    fn obstacle_memory_survives_a_dropped_cycle() {
+        // A cone seen at t0 but missing from t1's sample must still be
+        // present in the planning set at t1.
+        let mut mem = ObstacleMemory::new(5);
+        mem.push(vec![pt(1.0, 2.0)]);
+        mem.push(vec![]); // sampling dropped it this cycle
+        let union = mem.union();
+        assert!(union.iter().any(|o| o.x == 1.0 && o.y == 2.0));
+    }
+
+    #[test]
+    fn obstacle_memory_decays_after_depth_cycles() {
+        let mut mem = ObstacleMemory::new(3);
+        mem.push(vec![pt(1.0, 2.0)]);
+        for _ in 0..3 {
+            mem.push(vec![]);
+        }
+        assert!(mem.union().is_empty());
+    }
+
+    #[test]
+    fn obstacle_memory_unions_all_frames() {
+        let mut mem = ObstacleMemory::new(3);
+        mem.push(vec![pt(1.0, 0.0)]);
+        mem.push(vec![pt(2.0, 0.0)]);
+        assert_eq!(mem.union().len(), 2);
+    }
 }
