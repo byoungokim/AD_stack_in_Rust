@@ -91,7 +91,11 @@ fn default_obstacle_weight() -> f64 {
     2.0
 }
 fn default_robot_radius() -> f64 {
-    0.2
+    // Circumscribed radius of the Limo Pro footprint is 0.19; the previous
+    // 0.2 left ~1cm of margin, which perception latency eats at corners
+    // (measured: -0.076m ground-truth clearance cutting a gate edge at
+    // 0.3 m/s). 0.25 keeps a real margin while still passing 1.0m gaps.
+    0.25
 }
 fn default_max_curvature() -> f64 {
     // Matches the arbitrator's safety-envelope default and sits inside the
