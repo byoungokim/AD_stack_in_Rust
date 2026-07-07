@@ -1,0 +1,39 @@
+# Obstacle gauntlet for simulation/worlds/obstacle_gauntlet.sdf
+#
+# Frame note: planning/odom frame origin is the robot spawn pose in the world
+# (-9, 0, yaw 0), so these waypoints are world coordinates + (9, 0).
+# Course: slalom corridor -> 1.1m gate -> three crossing pedestrians ->
+# cluttered field with a wandering pedestrian. Sequence type: the scenario
+# reports complete=true when the last waypoint is reached.
+name: obstacle_gauntlet
+scenario_type: sequence
+speed_limit: 0.4
+
+waypoints:
+  - x: 7.0
+    y: 0.0
+    theta: 0.0
+    tolerance: 0.35
+    speed: 0.35
+    label: "slalom_exit"
+
+  - x: 8.7
+    y: 0.0
+    theta: 0.0
+    tolerance: 0.3
+    speed: 0.3
+    label: "gate_cleared"
+
+  - x: 13.2
+    y: 0.0
+    theta: 0.0
+    tolerance: 0.4
+    speed: 0.35
+    label: "plaza_crossed"
+
+  - x: 17.6
+    y: 1.4
+    theta: 0.0
+    tolerance: 0.35
+    speed: 0.3
+    label: "gauntlet_goal"
