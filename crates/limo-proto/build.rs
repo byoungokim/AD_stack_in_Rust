@@ -1,6 +1,9 @@
 use std::io::Result;
 
 fn main() -> Result<()> {
+    // Without this, edits to ../../proto/*.proto (outside the crate dir)
+    // never trigger regeneration and stale message structs linger.
+    println!("cargo:rerun-if-changed=../../proto");
     prost_build::compile_protos(
         &[
             "../../proto/common.proto",

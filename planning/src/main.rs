@@ -227,15 +227,22 @@ fn main() -> Result<()> {
 
         // --- 4. Build robot state and update grid ---
         let robot_state = build_robot_state(&world_state, &vehicle_state);
-        obstacle_memory.push(extract_obstacles(&world_state));
-        let obstacles = obstacle_memory.union();
+        let (static_obstacles, tracked_obstacles) = extract_obstacles(&world_state);
+        // Only untracked point samples go through persistence: tracked
+        // objects are continuous by construction (the tracker coasts through
+        // misses), and smearing a moving object across frames would leave a
+        // phantom trail behind it.
+        obstacle_memory.push(static_obstacles);
+        let mut obstacles = obstacle_memory.union();
+        obstacles.extend(tracked_obstacles);
 
         // Populate occupancy grid from detected obstacles
         // Clear grid each cycle and re-populate (rolling local map)
         grid.data.fill(0);
         for obs in &obstacles {
-            // Mark obstacle cells (inflate by robot radius for safety)
-            let inflate = 0.3; // meters
+            // Mark obstacle cells (inflate by robot radius for safety,
+            // plus the object's own extent for tracked clusters)
+            let inflate = 0.3 + obs.radius; // meters
             let steps = (inflate / grid.resolution) as i32;
             for dx in -steps..=steps {
                 for dy in -steps..=steps {
@@ -279,7 +286,10 @@ fn main() -> Result<()> {
                 .unwrap_or(0.0),
             nearest_obstacle_distance: obstacles
                 .iter()
-                .map(|o| ((o.x - robot_state.x).powi(2) + (o.y - robot_state.y).powi(2)).sqrt())
+                .map(|o| {
+                    let d = ((o.x - robot_state.x).powi(2) + (o.y - robot_state.y).powi(2)).sqrt();
+                    (d - o.radius).max(0.0)
+                })
                 .fold(f64::INFINITY, f64::min),
             emergency_stop: false,
         };
@@ -573,18 +583,37 @@ impl ObstacleMemory {
     }
 }
 
-fn extract_obstacles(world: &Option<limo_proto::WorldState>) -> Vec<Obstacle> {
-    let mut obstacles = Vec::new();
+/// Split detections into (untracked point samples, tracked objects).
+/// Tracked objects carry extent and velocity from sensperc's cluster tracker.
+fn extract_obstacles(world: &Option<limo_proto::WorldState>) -> (Vec<Obstacle>, Vec<Obstacle>) {
+    let mut points = Vec::new();
+    let mut tracked = Vec::new();
     if let Some(ws) = world {
         if let Some(dets) = &ws.detections {
             for det in &dets.detections {
                 if let Some(pos) = &det.position_world {
-                    obstacles.push(Obstacle { x: pos.x, y: pos.y });
+                    let (vx, vy) = det
+                        .velocity_world
+                        .as_ref()
+                        .map(|v| (v.linear_x, v.linear_y))
+                        .unwrap_or((0.0, 0.0));
+                    let obs = Obstacle {
+                        x: pos.x,
+                        y: pos.y,
+                        vx,
+                        vy,
+                        radius: det.radius as f64,
+                    };
+                    if det.track_id != 0 {
+                        tracked.push(obs);
+                    } else {
+                        points.push(obs);
+                    }
                 }
             }
         }
     }
-    obstacles
+    (points, tracked)
 }
 
 fn now_ns() -> u64 {
@@ -606,7 +635,7 @@ mod tests {
     use super::*;
 
     fn pt(x: f64, y: f64) -> Obstacle {
-        Obstacle { x, y }
+        Obstacle::point(x, y)
     }
 
     #[test]

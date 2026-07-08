@@ -22,6 +22,9 @@ message Detection {
   BoundingBox2D bbox_image = 3;  // bounding box in image coordinates
   Point2D position_world = 4;    // estimated position in world frame
   float distance = 5;            // meters from robot
+  Twist2D velocity_world = 6;    // estimated velocity in world frame (unset/zero = static or unknown)
+  float radius = 7;              // object extent radius in meters (0 = point sample)
+  uint32 track_id = 8;           // stable tracker id (0 = untracked point sample)
 }
 
 message DetectionArray {

@@ -46,11 +46,35 @@ pub struct RobotState {
     pub angular_vel: f64,
 }
 
-/// Obstacle as a 2D point (from perception).
+/// Obstacle from perception: either an untracked point sample (radius 0,
+/// zero velocity — walls, sector-sampled returns) or a tracked object with
+/// an extent radius and a world-frame velocity estimate.
 #[derive(Debug, Clone)]
 pub struct Obstacle {
     pub x: f64,
     pub y: f64,
+    pub vx: f64,
+    pub vy: f64,
+    pub radius: f64,
+}
+
+impl Obstacle {
+    /// Untracked point sample.
+    #[allow(dead_code)] // convenience constructor used by unit tests
+    pub fn point(x: f64, y: f64) -> Self {
+        Self {
+            x,
+            y,
+            vx: 0.0,
+            vy: 0.0,
+            radius: 0.0,
+        }
+    }
+
+    /// Position propagated along the velocity estimate by `t` seconds.
+    pub fn position_at(&self, t: f64) -> (f64, f64) {
+        (self.x + self.vx * t, self.y + self.vy * t)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

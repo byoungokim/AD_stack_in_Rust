@@ -248,14 +248,20 @@ impl DwaPlanner {
 
         let steps = (self.config.sim_time / self.config.sim_dt) as usize;
 
+        let mut t = 0.0;
         for _ in 0..steps {
             x += v * theta.cos() * self.config.sim_dt;
             y += v * theta.sin() * self.config.sim_dt;
             theta += w * self.config.sim_dt;
+            t += self.config.sim_dt;
 
-            // Check obstacle distances
+            // Check obstacle distances against velocity-propagated positions:
+            // a crossing pedestrian is checked where it WILL be when the
+            // robot gets there, not where it was at scan time. Distance is
+            // to the object surface (its extent radius subtracted).
             for obs in obstacles {
-                let d = ((x - obs.x).powi(2) + (y - obs.y).powi(2)).sqrt();
+                let (ox, oy) = obs.position_at(t);
+                let d = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt() - obs.radius;
                 if d < min_dist {
                     min_dist = d;
                 }
@@ -349,6 +355,92 @@ mod tests {
     }
 
     #[test]
+    fn test_dwa_propagates_moving_obstacles() {
+        // A pedestrian at (0.75, -0.55) walking +y at 0.5 m/s crosses the
+        // robot's straight line right when the robot would be there. Checked
+        // statically (vy = 0) the straight arc clears it by >0.3m and is
+        // chosen; checked against the propagated position it must be
+        // rejected or evaded.
+        let planner = DwaPlanner::new(DwaConfig::default());
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.5,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 3.0,
+            y: 0.0,
+            theta: 0.0,
+            steering: 0.0,
+        }];
+        let crossing = Obstacle {
+            x: 0.75,
+            y: -0.55,
+            vx: 0.0,
+            vy: 0.5,
+            radius: 0.15,
+        };
+        let mut parked = crossing.clone();
+        parked.vy = 0.0;
+
+        let cmd_static = planner.compute(&state, &path, &[parked], 0.5);
+        let cmd_moving = planner.compute(&state, &path, &[crossing], 0.5);
+
+        // Static: straight ahead at speed.
+        assert!(cmd_static.linear_x > 0.3);
+        assert!(cmd_static.angular_z.abs() < 0.15);
+        // Moving: the same arc now collides mid-simulation; the planner must
+        // change something (slow down and/or steer away).
+        let evaded =
+            cmd_moving.linear_x < cmd_static.linear_x - 0.05 || cmd_moving.angular_z.abs() > 0.2;
+        assert!(
+            evaded,
+            "planner ignored the crossing pedestrian: static=({:.2},{:.2}) moving=({:.2},{:.2})",
+            cmd_static.linear_x, cmd_static.angular_z, cmd_moving.linear_x, cmd_moving.angular_z
+        );
+    }
+
+    #[test]
+    fn test_dwa_respects_obstacle_extent_radius() {
+        // A 0.3m-radius object whose CENTER clears the path by 0.4m: a point
+        // check passes, a surface check must not.
+        let planner = DwaPlanner::new(DwaConfig::default());
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.4,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 3.0,
+            y: 0.0,
+            theta: 0.0,
+            steering: 0.0,
+        }];
+        let fat = Obstacle {
+            x: 0.8,
+            y: 0.4,
+            vx: 0.0,
+            vy: 0.0,
+            radius: 0.3,
+        };
+        let cmd = planner.compute(&state, &path, &[fat], 0.5);
+        let point = Obstacle::point(0.8, 0.4);
+        let cmd_point = planner.compute(&state, &path, &[point], 0.5);
+        // Point version: straight through. Extent version: must deviate.
+        assert!(cmd_point.angular_z.abs() < 0.15);
+        let evaded = cmd.linear_x < cmd_point.linear_x - 0.05 || cmd.angular_z.abs() >= 0.15;
+        assert!(
+            evaded,
+            "extent radius ignored: ({:.2},{:.2})",
+            cmd.linear_x, cmd.angular_z
+        );
+    }
+
+    #[test]
     fn test_dwa_output_stays_inside_curvature_envelope() {
         // Goal 90° to the side tempts a sharp turn; the command must still be
         // executable: |w| <= v * max_curvature, so nothing downstream clamps
@@ -422,7 +514,7 @@ mod tests {
             theta: 0.0,
             steering: 0.0,
         }];
-        let obstacles = vec![Obstacle { x: 0.5, y: 0.0 }];
+        let obstacles = vec![Obstacle::point(0.5, 0.0)];
 
         let cmd = planner.compute(&state, &path, &obstacles, 0.5);
         // Should steer away from obstacle
