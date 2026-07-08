@@ -75,7 +75,21 @@ impl Obstacle {
     pub fn position_at(&self, t: f64) -> (f64, f64) {
         (self.x + self.vx * t, self.y + self.vy * t)
     }
+
+    /// Extent radius grown by prediction uncertainty at lookahead `t`:
+    /// constant-velocity prediction is exact on straight legs and wrong when
+    /// the object turns or reverses, so the possible deviation grows with
+    /// how far the object travels in the prediction window. Measured: a
+    /// pedestrian turning a corner mid-prediction was clipped at -0.128m
+    /// ground truth without this.
+    pub fn effective_radius_at(&self, t: f64) -> f64 {
+        let speed = (self.vx * self.vx + self.vy * self.vy).sqrt();
+        self.radius + PREDICTION_UNCERTAINTY * speed * t
+    }
 }
+
+/// Meters of prediction uncertainty per meter of predicted travel.
+const PREDICTION_UNCERTAINTY: f64 = 0.4;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LocalPlannerConfig {
