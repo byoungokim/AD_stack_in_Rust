@@ -8,6 +8,7 @@
 pub mod detector;
 pub mod postprocessing;
 pub mod preprocessing;
+pub mod tracker;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

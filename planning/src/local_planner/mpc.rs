@@ -243,11 +243,13 @@ impl SimpleMpc {
             total_cost += self.config.weight_steer_rate * steer_rate;
             prev_steer = ctrl.steering;
 
-            // Obstacle cost
+            // Obstacle cost (velocity-propagated surface distance)
+            let t = (i + 1) as f64 * self.config.dt;
             for obs in obstacles {
-                let dist = ((x - obs.x).powi(2) + (y - obs.y).powi(2)).sqrt();
+                let (ox, oy) = obs.position_at(t);
+                let dist = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt() - obs.radius;
                 if dist < self.config.robot_radius * 2.0 {
-                    total_cost += self.config.weight_obstacle / (dist + 0.01);
+                    total_cost += self.config.weight_obstacle / (dist.max(0.0) + 0.01);
                 }
             }
         }
@@ -386,7 +388,7 @@ mod tests {
             theta: 0.0,
             steering: 0.0,
         }];
-        let obstacles = vec![Obstacle { x: 0.3, y: 0.0 }];
+        let obstacles = vec![Obstacle::point(0.3, 0.0)];
 
         let cmd = mpc.compute(&state, &path, &obstacles, 0.5);
         // Should slow down or steer to avoid
