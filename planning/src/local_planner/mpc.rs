@@ -247,7 +247,8 @@ impl SimpleMpc {
             let t = (i + 1) as f64 * self.config.dt;
             for obs in obstacles {
                 let (ox, oy) = obs.position_at(t);
-                let dist = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt() - obs.radius;
+                let dist =
+                    ((x - ox).powi(2) + (y - oy).powi(2)).sqrt() - obs.effective_radius_at(t);
                 if dist < self.config.robot_radius * 2.0 {
                     total_cost += self.config.weight_obstacle / (dist.max(0.0) + 0.01);
                 }

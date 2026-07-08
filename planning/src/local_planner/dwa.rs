@@ -261,7 +261,7 @@ impl DwaPlanner {
             // to the object surface (its extent radius subtracted).
             for obs in obstacles {
                 let (ox, oy) = obs.position_at(t);
-                let d = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt() - obs.radius;
+                let d = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt() - obs.effective_radius_at(t);
                 if d < min_dist {
                     min_dist = d;
                 }
