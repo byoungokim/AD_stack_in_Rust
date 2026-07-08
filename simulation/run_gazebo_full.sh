@@ -18,6 +18,13 @@ cd "$PROJECT_DIR"
 PRESET="${1:-square_patrol}"
 WORLD="${WORLD:-$PROJECT_DIR/simulation/worlds/test_track.sdf}"
 
+if [[ ! -f "$WORLD" ]]; then
+    echo "ERROR: world file not found: $WORLD" >&2
+    echo "       (wrong branch? available worlds:)" >&2
+    ls "$PROJECT_DIR/simulation/worlds/"*.sdf >&2
+    exit 1
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -43,6 +50,17 @@ cleanup() {
 }
 
 trap cleanup SIGINT SIGTERM
+
+# Pre-launch cleanup: leftovers from a previous run that didn't fully die
+# leave the GUI attached to a dead server and hold the ZMQ ports.
+if pgrep -f "gz sim" >/dev/null 2>&1 || pgrep -f "limo_sensperc|limo_planning|limo_control|limo_scenario|limo_sim_bridge" >/dev/null 2>&1; then
+    log "Cleaning up leftovers from a previous run..."
+    pkill -f "gz sim" 2>/dev/null || true
+    pkill -f gz_zmq_bridge 2>/dev/null || true
+    pkill -f "limo_sensperc|limo_planning|limo_control|limo_scenario|limo_sim_bridge" 2>/dev/null || true
+    sleep 2
+    pkill -9 -f "gz sim" 2>/dev/null || true
+fi
 
 # Ensure venv
 if [[ ! -d ".venv" ]]; then
