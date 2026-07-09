@@ -9,7 +9,7 @@ use tracing::info;
 
 use crate::{
     CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, Pose2D, SensorSource,
-    Twist2D, VehicleController,
+    StampedPose, Twist2D, VehicleController,
 };
 
 // ======================== SensorSource ========================
@@ -117,15 +117,15 @@ impl SensorSource for DummySensorSource {
         })
     }
 
-    fn recv_pose(&mut self) -> Option<(Pose2D, f32)> {
-        Some((
-            Pose2D {
-                x: 0.0,
-                y: 0.0,
-                theta: 0.0,
-            },
-            1.0,
-        ))
+    fn recv_pose(&mut self) -> Option<StampedPose> {
+        Some(StampedPose {
+            pose: Pose2D::default(),
+            confidence: 1.0,
+            timestamp_ns: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
+        })
     }
 
     fn recv_velocity(&mut self) -> Option<Twist2D> {

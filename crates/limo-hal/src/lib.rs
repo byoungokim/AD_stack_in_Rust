@@ -46,9 +46,10 @@ pub trait SensorSource: Send {
     fn recv_imu(&mut self) -> Option<ImuReading>;
 
     /// Try to receive a pose estimate with confidence (non-blocking).
-    /// Returns (pose, confidence) where confidence is [0.0, 1.0].
-    /// Sources: sim ground truth (1.0), SLAM (0.8), odometry (0.6).
-    fn recv_pose(&mut self) -> Option<(Pose2D, f32)>;
+    /// Try to receive a pose estimate stamped with the time it describes
+    /// (non-blocking). Sources: sim ground truth (1.0), SLAM (0.8),
+    /// odometry (0.6).
+    fn recv_pose(&mut self) -> Option<StampedPose>;
 
     /// Try to receive a velocity estimate (non-blocking).
     fn recv_velocity(&mut self) -> Option<Twist2D>;

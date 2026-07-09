@@ -14,7 +14,7 @@ use limo_transport::{Channel, Publisher, Subscriber};
 
 use crate::{
     CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, Pose2D, SensorSource,
-    Twist2D, VehicleController,
+    StampedPose, Twist2D, VehicleController,
 };
 
 // ======================== Configuration ========================
@@ -102,7 +102,7 @@ pub struct SimZmqSensorSource {
     latest_camera: Option<CameraFrame>,
     latest_lidar: Option<LidarScan>,
     latest_imu: Option<ImuReading>,
-    latest_pose: Option<(Pose2D, f32)>,
+    latest_pose: Option<StampedPose>,
     latest_velocity: Option<Twist2D>,
     faults: SimFaultConfig,
     rng: XorShift64,
@@ -199,14 +199,18 @@ impl SimZmqSensorSource {
         }
         if let Some(p) = sim.ground_truth_pose {
             if !self.should_drop(self.faults.pose_drop_rate) {
-                self.latest_pose = Some((
-                    Pose2D {
+                // Stamped with the bundle timestamp — the same stamp the
+                // lidar scan in this bundle carries, so scan/pose pairing
+                // downstream is exact.
+                self.latest_pose = Some(StampedPose {
+                    pose: Pose2D {
                         x: p.x,
                         y: p.y,
                         theta: p.theta,
                     },
-                    1.0,
-                ));
+                    confidence: 1.0,
+                    timestamp_ns: ts,
+                });
             }
         }
         if let Some(v) = sim.ground_truth_velocity {
@@ -256,7 +260,7 @@ impl SensorSource for SimZmqSensorSource {
         self.latest_imu.take()
     }
 
-    fn recv_pose(&mut self) -> Option<(Pose2D, f32)> {
+    fn recv_pose(&mut self) -> Option<StampedPose> {
         self.poll();
         self.latest_pose.take()
     }

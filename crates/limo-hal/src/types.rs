@@ -52,6 +52,18 @@ pub struct Pose2D {
     pub theta: f64,
 }
 
+/// A pose estimate stamped with the time it describes. The timestamp lets
+/// consumers pair a lidar scan with the pose the robot had AT SCAN TIME
+/// instead of the latest pose — during fast yaw the difference displaces
+/// projected obstacles by decimeters.
+#[derive(Clone, Debug, Default)]
+pub struct StampedPose {
+    pub pose: Pose2D,
+    /// [0.0, 1.0] — sim ground truth 1.0, SLAM 0.8, odometry 0.6.
+    pub confidence: f32,
+    pub timestamp_ns: u64,
+}
+
 /// 2D velocity.
 #[derive(Clone, Debug, Default)]
 pub struct Twist2D {
