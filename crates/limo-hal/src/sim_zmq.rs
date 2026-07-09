@@ -170,8 +170,17 @@ impl SimZmqSensorSource {
         }
         if let Some(scan) = sim.lidar_scan {
             if !self.should_drop(self.faults.lidar_drop_rate) {
+                // Prefer the scan's own capture stamp: bundles ship at the
+                // pose rate and re-carry the latest (possibly older) scan, so
+                // the bundle timestamp overstates the scan's freshness.
+                let scan_ts = scan
+                    .header
+                    .as_ref()
+                    .map(|h| h.timestamp_ns)
+                    .filter(|&t| t > 0)
+                    .unwrap_or(ts);
                 self.latest_lidar = Some(LidarScan {
-                    timestamp_ns: ts,
+                    timestamp_ns: scan_ts,
                     angle_min: scan.angle_min,
                     angle_max: scan.angle_max,
                     angle_increment: scan.angle_increment,
