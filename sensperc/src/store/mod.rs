@@ -45,6 +45,12 @@ pub struct SensorStore {
 
     // --- Localization: pose and velocity from any source ---
     // Updated by: sim ground truth (CH5), odometry (CH3), or SLAM
+    // Latest lidar scan, non-destructive (the ring buffer is SLAM's work
+    // queue; popping it from another thread steals scans — the aggregator
+    // and SLAM used to race on it, leaving the aggregator scanless on ~half
+    // its cycles and publishing obstacle-free WorldStates).
+    pub latest_scan: AtomicSlot<LidarScan>,
+
     pub latest_pose: AtomicSlot<Pose2D>,
     pub latest_velocity: AtomicSlot<Twist2D>,
     pub localization_confidence: AtomicSlot<f32>,
@@ -75,6 +81,7 @@ impl SensorStore {
             lidar_buffer: RingBuffer::new(8),  // ~800ms of scans at 10Hz
             imu_buffer: RingBuffer::new(128),  // ~1.28s of readings at 100Hz
             latest_fused_state: AtomicSlot::new(),
+            latest_scan: AtomicSlot::new(),
             latest_pose: AtomicSlot::new(),
             latest_velocity: AtomicSlot::new(),
             localization_confidence: AtomicSlot::new(),
