@@ -206,14 +206,19 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
             got_data = true;
         }
 
-        // Pose (from sim ground truth or SLAM)
-        if let Some((pose, confidence)) = source.recv_pose() {
-            store.latest_pose.store(store::types::Pose2D {
-                x: pose.x,
-                y: pose.y,
-                theta: pose.theta,
-            });
-            store.localization_confidence.store(confidence);
+        // Pose (from sim ground truth or SLAM), stamped with the time it
+        // describes so the aggregator can project scans with the scan-time
+        // pose instead of the latest one.
+        if let Some(stamped) = source.recv_pose() {
+            store.push_stamped_pose(
+                stamped.timestamp_ns,
+                store::types::Pose2D {
+                    x: stamped.pose.x,
+                    y: stamped.pose.y,
+                    theta: stamped.pose.theta,
+                },
+            );
+            store.localization_confidence.store(stamped.confidence);
             got_data = true;
         }
 
@@ -264,11 +269,15 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
         if let Ok(Some(vs)) = ch3_sub.recv::<limo_proto::VehicleState>(Duration::from_millis(1)) {
             if let Some(pose) = &vs.odometry_pose {
                 if store.latest_pose.age_secs() > 0.5 {
-                    store.latest_pose.store(store::types::Pose2D {
-                        x: pose.x,
-                        y: pose.y,
-                        theta: pose.theta,
-                    });
+                    let ts = vs.header.as_ref().map(|h| h.timestamp_ns).unwrap_or(0);
+                    store.push_stamped_pose(
+                        ts,
+                        store::types::Pose2D {
+                            x: pose.x,
+                            y: pose.y,
+                            theta: pose.theta,
+                        },
+                    );
                     store.localization_confidence.store(0.6);
                 }
             }
@@ -309,6 +318,13 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
                 0.0
             };
 
+            // Project with the pose the robot had AT SCAN TIME (interpolated
+            // from the stamped history), not the latest pose: during fast yaw
+            // the skew displaces projected obstacles by omega*skew*range.
+            let scan_pose = store
+                .pose_at(scan.timestamp_ns)
+                .unwrap_or_else(|| pose.clone());
+
             // Valid returns in beam order, with world-frame coordinates.
             let returns: Vec<(f32, f32, f64, f64)> = scan
                 .ranges
@@ -317,8 +333,8 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
                 .filter(|(_, &r)| r >= scan.range_min && r <= MAX_OBSTACLE_RANGE)
                 .map(|(i, &range)| {
                     let angle = scan.angle_min + i as f32 * angle_inc;
-                    let wx = pose.x + range as f64 * (pose.theta + angle as f64).cos();
-                    let wy = pose.y + range as f64 * (pose.theta + angle as f64).sin();
+                    let wx = scan_pose.x + range as f64 * (scan_pose.theta + angle as f64).cos();
+                    let wy = scan_pose.y + range as f64 * (scan_pose.theta + angle as f64).sin();
                     (angle, range, wx, wy)
                 })
                 .collect();
@@ -354,8 +370,10 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
                 nearest_per_sector(&static_returns, OBSTACLE_SECTORS)
                     .into_iter()
                     .map(|(angle, range)| {
-                        let wx = pose.x + range as f64 * (pose.theta + angle as f64).cos();
-                        let wy = pose.y + range as f64 * (pose.theta + angle as f64).sin();
+                        let wx =
+                            scan_pose.x + range as f64 * (scan_pose.theta + angle as f64).cos();
+                        let wy =
+                            scan_pose.y + range as f64 * (scan_pose.theta + angle as f64).sin();
                         limo_proto::Detection {
                             object_class: limo_proto::ObjectClass::ObjectObstacle as i32,
                             confidence: 0.8,

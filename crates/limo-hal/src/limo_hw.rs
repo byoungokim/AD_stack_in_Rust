@@ -13,8 +13,8 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::{
-    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, Pose2D, SensorSource,
-    Twist2D, VehicleController,
+    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, SensorSource,
+    StampedPose, Twist2D, VehicleController,
 };
 
 // ======================== Config ========================
@@ -172,7 +172,7 @@ impl SensorSource for LimoHwSensorSource {
         self.imu_rx.as_ref()?.try_recv().ok()
     }
 
-    fn recv_pose(&mut self) -> Option<(Pose2D, f32)> {
+    fn recv_pose(&mut self) -> Option<StampedPose> {
         None // real hardware has no ground truth; pose comes from SLAM/odometry
     }
 
