@@ -83,6 +83,7 @@ class NativeGzBridge:
         self.cmd_count = 0
         self.last_imu = None
         self.last_lidar = None
+        self.last_lidar_ts = 0.0  # wall-clock arrival time of last_lidar
         self.lock = threading.Lock()
 
         print(f"[bridge] Native gz.transport13 bridge")
@@ -154,9 +155,16 @@ class NativeGzBridge:
             self.last_imu = msg
 
     def _on_lidar(self, msg):
-        """Callback: Gazebo /limo/lidar → store for CH5 bundle."""
+        """Callback: Gazebo /limo/lidar → store for CH5 bundle.
+
+        The arrival time is recorded so the bundle can carry the scan's OWN
+        stamp: scans refresh at 10Hz but bundles ship at the 20Hz odom rate,
+        so without this the scan inherits a fresh bundle timestamp and
+        downstream scan-time pose lookup silently degrades to latest-pose.
+        """
         with self.lock:
             self.last_lidar = msg
+            self.last_lidar_ts = time.time()
 
     def _publish_sensor_data(self, x, y, yaw, lin_x, ang_z):
         """Bundle latest sensor data into CH5 SimSensorData."""
@@ -189,6 +197,7 @@ class NativeGzBridge:
             # LiDAR
             if self.last_lidar is not None:
                 lidar = self.last_lidar
+                sd.lidar_scan.header.timestamp_ns = int(self.last_lidar_ts * 1e9)
                 sd.lidar_scan.angle_min = lidar.angle_min
                 sd.lidar_scan.angle_max = lidar.angle_max
                 sd.lidar_scan.angle_increment = lidar.angle_step

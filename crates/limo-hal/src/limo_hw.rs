@@ -13,8 +13,8 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::{
-    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, SensorSource,
-    StampedPose, Twist2D, VehicleController,
+    CameraFrame, ChassisFeedback, ImuReading, LidarScan, MotorCommand, SensorSource, StampedPose,
+    Twist2D, VehicleController,
 };
 
 // ======================== Config ========================
