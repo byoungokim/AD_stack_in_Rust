@@ -159,6 +159,11 @@ fn main() -> Result<()> {
     // feasible trajectory in the gauntlet slalom).
     let mut obstacle_memory = ObstacleMemory::new(3);
 
+    // Tracked obstacles from the last received WorldState, for coasting
+    // through a missed CH1 cycle — the world must never blink empty.
+    let mut last_tracked: Vec<Obstacle> = Vec::new();
+    let mut last_tracked_at = Instant::now();
+
     info!("Planning process running — entering main loop");
 
     while !SHUTDOWN.load(Ordering::Acquire) {
@@ -227,7 +232,23 @@ fn main() -> Result<()> {
 
         // --- 4. Build robot state and update grid ---
         let robot_state = build_robot_state(&world_state, &vehicle_state);
-        let (static_obstacles, tracked_obstacles) = extract_obstacles(&world_state);
+        let (static_obstacles, mut tracked_obstacles) = extract_obstacles(&world_state);
+        if world_state.is_some() {
+            last_tracked = tracked_obstacles.clone();
+            last_tracked_at = Instant::now();
+        } else if last_tracked_at.elapsed().as_secs_f64() < 0.5 {
+            // CH1 miss this cycle: coast the last tracked set along its
+            // velocity estimates instead of planning in an empty world.
+            let dt = last_tracked_at.elapsed().as_secs_f64();
+            tracked_obstacles = last_tracked
+                .iter()
+                .map(|o| Obstacle {
+                    x: o.x + o.vx * dt,
+                    y: o.y + o.vy * dt,
+                    ..o.clone()
+                })
+                .collect();
+        }
         // Only untracked point samples go through persistence: tracked
         // objects are continuous by construction (the tracker coasts through
         // misses), and smearing a moving object across frames would leave a

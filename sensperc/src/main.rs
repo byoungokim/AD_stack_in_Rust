@@ -178,8 +178,19 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
             got_data = true;
         }
 
-        // LiDAR
+        // LiDAR: into the SLAM work queue AND the aggregator's latest slot
         if let Some(scan) = source.recv_lidar() {
+            store.latest_scan.store(store::types::LidarScan {
+                timestamp_ns: scan.timestamp_ns,
+                angle_min: scan.angle_min,
+                angle_max: scan.angle_max,
+                angle_increment: scan.angle_increment,
+                range_min: scan.range_min,
+                range_max: scan.range_max,
+                ranges: scan.ranges.clone(),
+                intensities: scan.intensities.clone(),
+                sequence: scan.sequence,
+            });
             store.push_lidar_scan(store::types::LidarScan {
                 timestamp_ns: scan.timestamp_ns,
                 angle_min: scan.angle_min,
@@ -261,6 +272,8 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
     let mut obstacle_tracker =
         perception::tracker::ClusterTracker::new(perception::tracker::TrackerConfig::default());
     let mut last_track_update = Instant::now();
+    let mut last_scan_seq: Option<u32> = None;
+    let mut prev_detections: Option<limo_proto::DetectionArray> = None;
 
     while !SHUTDOWN.load(Ordering::Acquire) {
         let cycle_start = Instant::now();
@@ -292,10 +305,16 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
             }
         }
 
-        // Read latest sensor data
-        let _latest_camera = store.camera_buffer.pop_latest();
-        let latest_lidar = store.lidar_buffer.pop_latest();
-        let _latest_imu = store.imu_buffer.pop_latest();
+        // Read the latest scan non-destructively. The camera and imu ring
+        // buffers belong to the perception and SLAM threads — popping them
+        // here starved those consumers.
+        let latest_lidar = store.latest_scan.load();
+        let is_new_scan = latest_lidar
+            .as_ref()
+            .is_some_and(|s| Some(s.sequence) != last_scan_seq);
+        if let Some(scan) = &latest_lidar {
+            last_scan_seq = Some(scan.sequence);
+        }
 
         let pose = store.latest_pose.load().unwrap_or_default();
         let velocity = store.latest_velocity.load().unwrap_or_default();
@@ -308,7 +327,12 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
         // 3. Everything else (walls, noise) keeps the nearest-return-per-
         //    sector point representation, so the closest obstacle in every
         //    direction always survives sampling.
-        let detections = if let Some(scan) = &latest_lidar {
+        let detections = if !is_new_scan {
+            // Same scan as last cycle (or none yet): re-emit the previous
+            // detections instead of publishing an obstacle-free WorldState —
+            // planning must never see the world blink empty.
+            prev_detections.clone()
+        } else if let Some(scan) = &latest_lidar {
             let num_points = scan.ranges.len();
             let angle_inc = if scan.angle_increment > 0.0 {
                 scan.angle_increment
@@ -411,6 +435,7 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
         } else {
             None
         };
+        prev_detections = detections.clone();
 
         // Merge camera detections (from YOLO) if available
         let detections = if let Some(cam_dets) = store.latest_detections.load() {
