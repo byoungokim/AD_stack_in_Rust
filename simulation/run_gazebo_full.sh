@@ -74,8 +74,18 @@ if [[ ! -d "proto/gen_py" ]]; then
     make proto
 fi
 
-source "$HOME/.cargo/env" 2>/dev/null || true
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env" || true
 export GZ_SIM_RESOURCE_PATH="$PROJECT_DIR/simulation/models"
+# macOS blocks multicast discovery; force gz-transport onto loopback.
+export GZ_IP="${GZ_IP:-127.0.0.1}"
+
+# The bridge runs on system Python for gz.transport13 and needs zmq+protobuf there.
+if ! python3 -c "import zmq, google.protobuf, gz.transport13" 2>/dev/null; then
+    echo "ERROR: system python3 is missing bridge deps (gz.transport13, pyzmq, protobuf)." >&2
+    echo "       Install Gazebo Harmonic (brew install osrf/simulation/gz-harmonic) and:" >&2
+    echo "       python3 -m pip install --break-system-packages pyzmq protobuf" >&2
+    exit 1
+fi
 
 # === 1. Gazebo Server ===
 log "Starting Gazebo server..."

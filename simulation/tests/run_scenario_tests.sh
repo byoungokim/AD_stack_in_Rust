@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 cd "$PROJECT_DIR"
 
-source "$HOME/.cargo/env" 2>/dev/null || true
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env" || true
 export GZ_SIM_RESOURCE_PATH="$PROJECT_DIR/simulation/models"
 
 RED='\033[0;31m'
@@ -31,6 +31,9 @@ NC='\033[0m'
 PASS=0
 FAIL=0
 RESULTS=()
+
+# macOS blocks multicast discovery; force gz-transport onto loopback.
+export GZ_IP="${GZ_IP:-127.0.0.1}"
 
 # macOS uses gtimeout from coreutils
 if command -v gtimeout &>/dev/null; then
