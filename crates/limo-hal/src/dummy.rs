@@ -145,6 +145,7 @@ pub struct DummyVehicleController {
     y: f64,
     theta: f64,
     last_update: Instant,
+    estop_count: u64,
 }
 
 impl Default for DummyVehicleController {
@@ -161,7 +162,18 @@ impl DummyVehicleController {
             y: 0.0,
             theta: 0.0,
             last_update: Instant::now(),
+            estop_count: 0,
         }
+    }
+
+    /// The last command that reached the (simulated) motors.
+    pub fn last_command(&self) -> &MotorCommand {
+        &self.last_command
+    }
+
+    /// Number of emergency_stop() calls since creation (test observability).
+    pub fn estop_count(&self) -> u64 {
+        self.estop_count
     }
 }
 
@@ -178,6 +190,12 @@ impl VehicleController for DummyVehicleController {
 
     fn send_command(&mut self, cmd: &MotorCommand) -> Result<()> {
         self.last_command = cmd.clone();
+        Ok(())
+    }
+
+    fn emergency_stop(&mut self) -> Result<()> {
+        self.last_command = MotorCommand::default();
+        self.estop_count += 1;
         Ok(())
     }
 

@@ -238,6 +238,15 @@ impl VehicleController for LimoHwVehicleController {
         Ok(())
     }
 
+    fn emergency_stop(&mut self) -> Result<()> {
+        // Real Limo Pro e-stop framing is out of scope for now. The
+        // strongest available action is latching a zero-velocity command
+        // that the chassis loop transmits at the chassis rate until the
+        // e-stop clears; the firmware timeout (~500ms) backs this up.
+        *self.command.lock().unwrap() = MotorCommand::default();
+        Ok(())
+    }
+
     fn recv_feedback(&mut self) -> Option<ChassisFeedback> {
         Some(self.feedback.lock().unwrap().clone())
     }

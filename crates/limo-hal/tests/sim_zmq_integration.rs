@@ -77,5 +77,15 @@ fn send_command_publishes_correct_steering_on_ch7() {
         seq2
     );
 
+    // Case 3: emergency_stop() → estop flag set, zero velocities.
+    ctrl.emergency_stop().expect("emergency_stop");
+    let msg3: limo_proto::SimControlCommand = sub
+        .recv(Duration::from_secs(2))
+        .expect("recv error")
+        .expect("timeout — no CH7 message (case 3)");
+    assert!(msg3.emergency_stop, "emergency_stop flag not set on wire");
+    assert_eq!(msg3.linear_velocity, 0.0);
+    assert_eq!(msg3.angular_velocity, 0.0);
+
     ctrl.stop();
 }

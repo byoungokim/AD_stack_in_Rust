@@ -3,6 +3,7 @@
 ///
 /// Supports Ackermann and differential drive modes for the Limo Pro.
 use serde::Deserialize;
+use tracing::warn;
 
 /// Local feedback type for kinematics computation.
 /// Converted from limo_hal::ChassisFeedback via `to_kinematics_feedback()`.
@@ -36,6 +37,10 @@ pub struct KinematicsConfig {
     pub wheel_radius: f64, // meters
     #[serde(default = "default_max_steering")]
     pub max_steering_angle: f64, // radians
+    /// Hardware linear velocity limit (m/s). Default is the safe
+    /// real-hardware value; simulation configs may raise it.
+    #[serde(default = "default_max_linear_vel")]
+    pub max_linear_vel: f64, // m/s
 }
 
 fn default_mode() -> String {
@@ -53,6 +58,14 @@ fn default_wheel_radius() -> f64 {
 fn default_max_steering() -> f64 {
     0.48
 }
+fn default_max_linear_vel() -> f64 {
+    1.0
+}
+
+/// Reference-speed floor for the Ackermann angular limit. Without it a
+/// near-zero linear command would collapse the angular limit to zero and
+/// block low-speed / recovery steering arcs.
+const MIN_ANGULAR_REF_SPEED: f64 = 0.1; // m/s
 
 impl Default for KinematicsConfig {
     fn default() -> Self {
@@ -62,6 +75,7 @@ impl Default for KinematicsConfig {
             track_width: default_track_width(),
             wheel_radius: default_wheel_radius(),
             max_steering_angle: default_max_steering(),
+            max_linear_vel: default_max_linear_vel(),
         }
     }
 }
@@ -102,6 +116,19 @@ impl KinematicsConfig {
                 self.max_steering_angle
             ));
         }
+        if !(self.max_linear_vel > 0.0 && self.max_linear_vel.is_finite()) {
+            return Err(format!(
+                "kinematics.max_linear_vel must be > 0 and finite, got {}",
+                self.max_linear_vel
+            ));
+        }
+        if self.max_linear_vel > 3.0 {
+            warn!(
+                "kinematics.max_linear_vel = {} m/s exceeds 3.0 m/s — far above \
+                 anything the Limo Pro platform can execute; check the config",
+                self.max_linear_vel
+            );
+        }
         Ok(())
     }
 }
@@ -136,17 +163,26 @@ impl KinematicsEngine {
 
     /// Clamp a velocity command to hardware limits.
     pub fn clamp_command(&self, cmd: &MotorCommand) -> MotorCommand {
+        let linear_vel = cmd
+            .linear_vel
+            .clamp(-self.config.max_linear_vel, self.config.max_linear_vel);
+
         let max_angular = if self.config.mode == "ackermann" {
-            // Max angular vel from max steering angle: v * tan(delta) / L
-            // Use a reasonable max linear vel for the limit
-            1.0_f64 * self.config.max_steering_angle.tan() / self.config.wheelbase
+            // Max executable yaw rate at the ACTUAL commanded speed:
+            // ω_max = |v| · tan(δ_max) / L. A fixed reference speed is
+            // wrong in both directions — too permissive when slow, too
+            // restrictive when fast. Floor |v| so near-zero commands
+            // (e.g. recovery arcs starting from rest) keep steering
+            // authority instead of collapsing the limit to zero.
+            let ref_speed = linear_vel.abs().max(MIN_ANGULAR_REF_SPEED);
+            ref_speed * self.config.max_steering_angle.tan() / self.config.wheelbase
         } else {
             // Differential: limited by track width and wheel speed
             3.0 // rad/s, generous limit
         };
 
         MotorCommand {
-            linear_vel: cmd.linear_vel.clamp(-1.0, 1.0),
+            linear_vel,
             angular_vel: cmd.angular_vel.clamp(-max_angular, max_angular),
         }
     }
@@ -300,6 +336,90 @@ mod tests {
     }
 
     #[test]
+    fn clamp_honors_configured_max_linear_vel() {
+        let cfg = KinematicsConfig {
+            max_linear_vel: 2.5,
+            ..KinematicsConfig::default()
+        };
+        let engine = KinematicsEngine::new(cfg);
+
+        // 2.2 m/s is within the configured limit → passes untouched.
+        let cmd = MotorCommand {
+            linear_vel: 2.2,
+            angular_vel: 0.0,
+        };
+        let clamped = engine.clamp_command(&cmd);
+        assert!((clamped.linear_vel - 2.2).abs() < 1e-12);
+
+        // Above the limit → clamped to it, both signs.
+        let over = engine.clamp_command(&MotorCommand {
+            linear_vel: 5.0,
+            angular_vel: 0.0,
+        });
+        assert!((over.linear_vel - 2.5).abs() < 1e-12);
+        let rev = engine.clamp_command(&MotorCommand {
+            linear_vel: -5.0,
+            angular_vel: 0.0,
+        });
+        assert!((rev.linear_vel + 2.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ackermann_angular_limit_scales_with_commanded_speed() {
+        let cfg = KinematicsConfig {
+            max_linear_vel: 2.5,
+            ..KinematicsConfig::default()
+        };
+        let engine = KinematicsEngine::new(cfg.clone());
+        let k = cfg.max_steering_angle.tan() / cfg.wheelbase; // ω per m/s
+
+        // Slow (0.2 m/s): limit is tight — 0.2·k, NOT the old fixed 1.0·k.
+        let slow = engine.clamp_command(&MotorCommand {
+            linear_vel: 0.2,
+            angular_vel: 100.0,
+        });
+        assert!((slow.angular_vel - 0.2 * k).abs() < 1e-9);
+
+        // Fast (2.2 m/s): limit widens to 2.2·k (~5.7 rad/s), well above
+        // the old fixed-reference cap of ~2.6 rad/s.
+        let fast = engine.clamp_command(&MotorCommand {
+            linear_vel: 2.2,
+            angular_vel: 100.0,
+        });
+        assert!((fast.angular_vel - 2.2 * k).abs() < 1e-9);
+        assert!(fast.angular_vel > 5.0);
+
+        // Within the speed-scaled limit → untouched.
+        let ok = engine.clamp_command(&MotorCommand {
+            linear_vel: 2.2,
+            angular_vel: 4.0,
+        });
+        assert!((ok.angular_vel - 4.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ackermann_angular_limit_floors_near_zero_speed() {
+        let engine = KinematicsEngine::new(KinematicsConfig::default());
+        let k = default_max_steering().tan() / default_wheelbase();
+
+        // Zero linear command: the floor keeps steering authority alive
+        // (0.1·k) instead of collapsing the limit to zero.
+        let stopped = engine.clamp_command(&MotorCommand {
+            linear_vel: 0.0,
+            angular_vel: 100.0,
+        });
+        assert!((stopped.angular_vel - MIN_ANGULAR_REF_SPEED * k).abs() < 1e-9);
+        assert!(stopped.angular_vel > 0.0);
+
+        // Reverse recovery arc at low speed gets the same floored limit.
+        let reverse = engine.clamp_command(&MotorCommand {
+            linear_vel: -0.05,
+            angular_vel: -100.0,
+        });
+        assert!((reverse.angular_vel + MIN_ANGULAR_REF_SPEED * k).abs() < 1e-9);
+    }
+
+    #[test]
     fn test_normalize_angle() {
         assert!((normalize_angle(4.0) - (4.0 - 2.0 * std::f64::consts::PI)).abs() < 1e-10);
         assert!((normalize_angle(-4.0) - (-4.0 + 2.0 * std::f64::consts::PI)).abs() < 1e-10);
@@ -346,5 +466,28 @@ mod tests {
             ..KinematicsConfig::default()
         };
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_bad_max_linear_vel() {
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let cfg = KinematicsConfig {
+                max_linear_vel: bad,
+                ..KinematicsConfig::default()
+            };
+            assert!(cfg.validate().is_err(), "should reject {}", bad);
+        }
+    }
+
+    #[test]
+    fn validate_accepts_sim_max_linear_vel() {
+        // 2.5 (sim) is valid; > 3.0 only warns, it does not reject.
+        for v in [2.5, 3.5] {
+            let cfg = KinematicsConfig {
+                max_linear_vel: v,
+                ..KinematicsConfig::default()
+            };
+            assert!(cfg.validate().is_ok());
+        }
     }
 }
