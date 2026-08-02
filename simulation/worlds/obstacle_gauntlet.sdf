@@ -419,7 +419,13 @@
     <include>
       <uri>model://limo_pro</uri>
       <name>limo</name>
-      <pose>-9 0 0.055 0 0 0</pose>
+      <!-- Spawn height: wheel bottoms must clear the ground plane. 0.055 put
+           the wheels (z -0.03, r 0.045) 2cm INSIDE the ground; the t=0
+           physics settle ejected/slid the robot without wheel odometry
+           recording it, rigidly offsetting the odom frame from the world
+           (~0.25 rad + 0.6m measured) and displacing every projected
+           obstacle. 0.075 rests the wheels exactly on the plane. -->
+      <pose>-9 0 0.075 0 0 0</pose>
       <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
         <publish_model_pose>true</publish_model_pose>
         <publish_link_pose>false</publish_link_pose>
