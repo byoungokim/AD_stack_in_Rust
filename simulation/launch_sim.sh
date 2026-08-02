@@ -16,6 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
+# macOS blocks multicast discovery; force gz-transport onto loopback.
+export GZ_IP="${GZ_IP:-127.0.0.1}"
+
 DUMMY_MODE=false
 if [[ "$1" == "--dummy" ]]; then
     DUMMY_MODE=true
@@ -51,7 +54,7 @@ trap cleanup SIGINT SIGTERM
 
 # --- 1. Build ---
 log "Building Rust binaries..."
-source "$HOME/.cargo/env" 2>/dev/null || true
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env" || true
 cargo build --release 2>&1 | tail -3
 
 # --- 2. Python venv + proto ---
