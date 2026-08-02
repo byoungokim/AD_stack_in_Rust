@@ -26,6 +26,12 @@ pub struct MpcConfig {
     pub iterations: usize, // optimization iterations
     #[serde(default = "default_robot_radius")]
     pub robot_radius: f64,
+    /// Executable-curvature envelope (1/m): the output command is clamped to
+    /// |w| <= v * max_curvature — the same envelope DWA enforces — so MPC can
+    /// never command an arc the Ackermann steering cannot execute. Keep in
+    /// sync with `dwa.max_curvature` and the arbitrator safety envelope.
+    #[serde(default = "default_max_curvature")]
+    pub max_curvature: f64,
 
     // Cost weights
     #[serde(default = "default_w_pos")]
@@ -64,6 +70,11 @@ fn default_iterations() -> usize {
 fn default_robot_radius() -> f64 {
     0.2
 }
+fn default_max_curvature() -> f64 {
+    // Matches DWA / arbitrator safety envelope; inside the Ackermann limit
+    // tan(0.48)/0.2 ≈ 2.6.
+    2.0
+}
 fn default_w_pos() -> f64 {
     5.0
 }
@@ -91,6 +102,7 @@ impl Default for MpcConfig {
             max_steering_angle: default_max_steering(),
             iterations: default_iterations(),
             robot_radius: default_robot_radius(),
+            max_curvature: default_max_curvature(),
             weight_position: default_w_pos(),
             weight_heading: default_w_heading(),
             weight_velocity: default_w_velocity(),
@@ -178,6 +190,14 @@ impl SimpleMpc {
             }
         }
 
+        // Confidence is FEASIBILITY-based: how much clearance the chosen
+        // trajectory keeps to the nearest obstacle. Deriving it from the cost
+        // sum pinned confidence to ~0.1 near obstacles (the 1/(dist+0.01)
+        // term is unbounded) and deadlocked the arbitrator gate mid-slalom
+        // even though the trajectory was collision-free.
+        let min_clearance = self.trajectory_clearance(state, &controls, obstacles);
+        let confidence = feasibility_confidence(min_clearance, self.config.robot_radius);
+
         // Apply first control
         let first_vel = controls[0].velocity;
         let first_steer = controls[0].steering;
@@ -185,14 +205,57 @@ impl SimpleMpc {
 
         self.prev_controls = controls;
 
-        VelocityCommand {
-            linear_x: first_vel,
-            angular_z: angular_z.clamp(
+        // Executable-curvature envelope, same as DWA: never command an arc
+        // tighter than |w| = v * max_curvature — downstream would clamp it and
+        // the real arc would swing wider than the optimized one.
+        let w_curv_limit = first_vel.abs() * self.config.max_curvature;
+        let angular_z = angular_z
+            .clamp(
                 -self.config.max_angular_speed,
                 self.config.max_angular_speed,
-            ),
-            confidence: (1.0 - best_cost / 100.0).clamp(0.1, 1.0) as f32,
+            )
+            .clamp(-w_curv_limit, w_curv_limit);
+
+        VelocityCommand {
+            linear_x: first_vel,
+            angular_z,
+            confidence,
         }
+    }
+
+    /// Minimum clearance (m) between the robot BODY and any obstacle surface
+    /// along the trajectory produced by `controls`: distance to the obstacle
+    /// surface minus the robot radius. Negative means the trajectory is in
+    /// collision; +INFINITY when there are no obstacles.
+    fn trajectory_clearance(
+        &self,
+        state: &RobotState,
+        controls: &[ControlInput],
+        obstacles: &[Obstacle],
+    ) -> f64 {
+        let mut x = state.x;
+        let mut y = state.y;
+        let mut theta = state.theta;
+        let mut min_clearance = f64::INFINITY;
+
+        for (i, ctrl) in controls.iter().enumerate() {
+            x += ctrl.velocity * theta.cos() * self.config.dt;
+            y += ctrl.velocity * theta.sin() * self.config.dt;
+            theta += (ctrl.velocity / self.config.wheelbase) * ctrl.steering.tan() * self.config.dt;
+
+            let t = (i + 1) as f64 * self.config.dt;
+            for obs in obstacles {
+                let (ox, oy) = obs.position_at(t);
+                let clearance = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt()
+                    - obs.effective_radius_at(t)
+                    - self.config.robot_radius;
+                if clearance < min_clearance {
+                    min_clearance = clearance;
+                }
+            }
+        }
+
+        min_clearance
     }
 
     /// Evaluate cost of a control sequence.
@@ -301,6 +364,19 @@ impl SimpleMpc {
     }
 }
 
+/// Map trajectory clearance to confidence: a colliding trajectory (clearance
+/// < 0) is 0.1 — the arbitrator's degraded response takes over. A collision-
+/// free trajectory scales 0.6..0.9 with clearance, saturating at one robot
+/// radius of margin: grazing past at zero margin is trustworthy-but-tight
+/// (0.6), a full radius of spare room (or an empty field) is 0.9.
+fn feasibility_confidence(min_clearance: f64, robot_radius: f64) -> f32 {
+    if min_clearance < 0.0 {
+        return 0.1;
+    }
+    let margin_scale = (min_clearance / robot_radius.max(1e-6)).min(1.0);
+    (0.6 + 0.3 * margin_scale) as f32
+}
+
 /// Simple deterministic pseudo-random in [0, 1) for perturbation.
 fn fastrand() -> f64 {
     use std::cell::Cell;
@@ -348,24 +424,28 @@ mod tests {
                 y: 0.0,
                 theta: 0.0,
                 steering: 0.0,
+                dir: Default::default(),
             },
             PathWaypoint {
                 x: 1.0,
                 y: 0.0,
                 theta: 0.0,
                 steering: 0.0,
+                dir: Default::default(),
             },
             PathWaypoint {
                 x: 1.5,
                 y: 0.0,
                 theta: 0.0,
                 steering: 0.0,
+                dir: Default::default(),
             },
             PathWaypoint {
                 x: 2.0,
                 y: 0.0,
                 theta: 0.0,
                 steering: 0.0,
+                dir: Default::default(),
             },
         ];
 
@@ -388,11 +468,156 @@ mod tests {
             y: 0.0,
             theta: 0.0,
             steering: 0.0,
+            dir: Default::default(),
         }];
         let obstacles = vec![Obstacle::point(0.3, 0.0)];
 
         let cmd = mpc.compute(&state, &path, &obstacles, 0.5);
         // Should slow down or steer to avoid
         assert!(cmd.linear_x < 0.5 || cmd.angular_z.abs() > 0.01);
+    }
+
+    #[test]
+    fn test_mpc_confidence_high_when_trajectory_clear() {
+        // Open field: feasibility-based confidence must be HIGH even though
+        // tracking/velocity cost terms are non-zero. The old cost-derived
+        // formula (1 - cost/100) reported near-arbitrary values here.
+        let mut mpc = SimpleMpc::new(MpcConfig::default());
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
+        let path = vec![
+            PathWaypoint {
+                x: 1.0,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+                dir: Default::default(),
+            },
+            PathWaypoint {
+                x: 2.0,
+                y: 0.0,
+                theta: 0.0,
+                steering: 0.0,
+                dir: Default::default(),
+            },
+        ];
+
+        // No obstacles at all: full margin confidence.
+        let cmd = mpc.compute(&state, &path, &[], 0.5);
+        assert!(
+            (cmd.confidence - 0.9).abs() < 1e-6,
+            "clear trajectory must be high-confidence, got {}",
+            cmd.confidence
+        );
+
+        // A far-away obstacle (2m off to the side) must not tank confidence.
+        let far = Obstacle::point(1.0, 2.0);
+        let cmd = mpc.compute(&state, &path, &[far], 0.5);
+        assert!(
+            cmd.confidence >= 0.6,
+            "collision-free trajectory near an irrelevant obstacle got {}",
+            cmd.confidence
+        );
+    }
+
+    #[test]
+    fn test_mpc_confidence_low_when_trajectory_collides() {
+        // Robot boxed in: an obstacle dead ahead within the robot radius means
+        // every forward trajectory collides -> confidence 0.1.
+        let mut mpc = SimpleMpc::new(MpcConfig::default());
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 1.0,
+            y: 0.0,
+            theta: 0.0,
+            steering: 0.0,
+            dir: Default::default(),
+        }];
+        // Wall of obstacles right in front — no clearance anywhere.
+        let wall: Vec<Obstacle> = (-3..=3)
+            .map(|i| Obstacle::point(0.15, i as f64 * 0.1))
+            .collect();
+
+        let cmd = mpc.compute(&state, &path, &wall, 0.5);
+        assert!(
+            (cmd.confidence - 0.1).abs() < 1e-6,
+            "colliding trajectory must report 0.1, got {}",
+            cmd.confidence
+        );
+    }
+
+    #[test]
+    fn test_feasibility_confidence_mapping() {
+        // Collision -> 0.1.
+        assert_eq!(feasibility_confidence(-0.05, 0.2), 0.1);
+        // Zero clearance (grazing) -> 0.6.
+        assert!((feasibility_confidence(0.0, 0.2) - 0.6).abs() < 1e-6);
+        // One robot radius of margin (or more) saturates at 0.9.
+        assert!((feasibility_confidence(0.2, 0.2) - 0.9).abs() < 1e-6);
+        assert!((feasibility_confidence(10.0, 0.2) - 0.9).abs() < 1e-6);
+        // Monotone in between.
+        assert!(feasibility_confidence(0.05, 0.2) < feasibility_confidence(0.15, 0.2));
+    }
+
+    #[test]
+    fn test_mpc_output_stays_inside_curvature_envelope() {
+        // Path bending hard 90° to the side tempts maximum steering; the
+        // emitted command must satisfy |w| <= v * max_curvature so downstream
+        // clamps never widen the real arc past the optimized one.
+        let config = MpcConfig::default();
+        let max_curvature = config.max_curvature;
+        let mut mpc = SimpleMpc::new(config);
+        let state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
+        let path = vec![
+            PathWaypoint {
+                x: 0.1,
+                y: 0.1,
+                theta: 0.8,
+                steering: 0.0,
+                dir: Default::default(),
+            },
+            PathWaypoint {
+                x: 0.1,
+                y: 0.5,
+                theta: std::f64::consts::FRAC_PI_2,
+                steering: 0.0,
+                dir: Default::default(),
+            },
+            PathWaypoint {
+                x: 0.1,
+                y: 1.0,
+                theta: std::f64::consts::FRAC_PI_2,
+                steering: 0.0,
+                dir: Default::default(),
+            },
+        ];
+
+        for _ in 0..5 {
+            let cmd = mpc.compute(&state, &path, &[], 0.5);
+            assert!(
+                cmd.angular_z.abs() <= cmd.linear_x.abs() * max_curvature + 1e-9,
+                "MPC command (v={}, w={}) exceeds curvature envelope {}",
+                cmd.linear_x,
+                cmd.angular_z,
+                max_curvature
+            );
+        }
     }
 }
