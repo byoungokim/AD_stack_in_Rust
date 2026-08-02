@@ -10,6 +10,29 @@ pub struct SensPercConfig {
     pub aggregator: AggregatorConfig,
     #[serde(default)]
     pub sim_faults: SimFaultConfig,
+    #[serde(default)]
+    pub lidar_mount: LidarMountConfig,
+}
+
+/// Planar mount pose of the lidar on the chassis (base_link → lidar).
+///
+/// Lidar ranges are measured from the sensor origin, not from base_link
+/// center: an unmodeled mount offset displaces EVERY projected obstacle by
+/// exactly that offset in the world frame (0.2-0.6 m class errors).
+///
+/// Defaults are zero because the gz model
+/// (simulation/models/limo_pro/model.sdf, `<sensor name="lidar">` pose
+/// `0.0 0 0.15`) mounts the lidar at the base center. Set x/y/yaw here for
+/// hardware where the scanner sits off-center.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct LidarMountConfig {
+    /// Forward offset from base_link center (meters).
+    pub x: f64,
+    /// Left offset from base_link center (meters).
+    pub y: f64,
+    /// Mount yaw relative to the chassis forward axis (radians).
+    pub yaw: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,6 +74,22 @@ mod tests {
         let cfg: SensPercConfig = serde_yaml::from_str("{}").unwrap();
         assert_eq!(cfg.aggregator.rate_hz, 10);
         assert!(!cfg.sim_faults.is_active());
+        // Sim default: lidar mounted at base center (matches model.sdf).
+        assert_eq!(cfg.lidar_mount.x, 0.0);
+        assert_eq!(cfg.lidar_mount.y, 0.0);
+        assert_eq!(cfg.lidar_mount.yaw, 0.0);
+    }
+
+    #[test]
+    fn parses_lidar_mount_partial() {
+        let yaml = r#"
+lidar_mount:
+  x: 0.105
+"#;
+        let cfg: SensPercConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!((cfg.lidar_mount.x - 0.105).abs() < 1e-9);
+        assert_eq!(cfg.lidar_mount.y, 0.0);
+        assert_eq!(cfg.lidar_mount.yaw, 0.0);
     }
 
     #[test]

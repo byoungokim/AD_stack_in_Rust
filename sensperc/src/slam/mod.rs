@@ -100,11 +100,21 @@ pub fn slam_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool) {
             }
         }
 
-        // 4. Build occupancy grid from current scan + estimated pose
+        // 4. Build occupancy grid from current scan + the scan-time pose from
+        // the SAME source the aggregator projects detections with. Using the
+        // scan-matcher's dead-reckoned pose here was harmless when the grid
+        // was a per-scan snapshot, but the accumulated grid preserves drifted
+        // history: walls smeared into frame-offset copies that the planner
+        // (which overlays this map with true-frame detections) read as
+        // phantom mid-corridor blockages. One frame for all layers.
+        let (grid_x, grid_y, grid_theta) = match store.pose_at(scan.timestamp_ns) {
+            Some(p) => (p.x, p.y, p.theta),
+            None => (tracker.x, tracker.y, tracker.theta),
+        };
         grid_builder.update(
-            tracker.x,
-            tracker.y,
-            tracker.theta,
+            grid_x,
+            grid_y,
+            grid_theta,
             &scan.ranges,
             scan.angle_min,
             scan.angle_increment,
@@ -112,7 +122,7 @@ pub fn slam_loop(store: &Arc<SensorStore>, shutdown: &AtomicBool) {
             scan.range_max,
         );
 
-        let occupancy_grid = grid_builder.to_occupancy_grid(tracker.x, tracker.y);
+        let occupancy_grid = grid_builder.to_occupancy_grid();
         store.slam_local_map.store(occupancy_grid);
 
         // Save current lines for next iteration

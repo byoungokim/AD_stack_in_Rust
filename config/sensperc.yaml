@@ -14,6 +14,16 @@ lidar:
   range_min: 0.1
   range_max: 12.0
 
+# Planar pose of the lidar on the chassis (base_link -> lidar).
+# Sim: the gz model mounts the lidar at the base center
+# (simulation/models/limo_pro/model.sdf lidar pose "0.0 0 0.15"), so all
+# values are 0. Set for hardware if the scanner sits off-center — an
+# unmodeled mount offset displaces every projected obstacle by that offset.
+lidar_mount:
+  x: 0.0    # forward offset, meters
+  y: 0.0    # left offset, meters
+  yaw: 0.0  # mount yaw vs chassis forward, radians
+
 imu:
   device: "/dev/ttyUSB1"
   baudrate: 115200

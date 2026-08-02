@@ -17,7 +17,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use config::{load_config, SensPercConfig};
@@ -120,10 +120,11 @@ fn main() -> Result<()> {
     // Start aggregator loop (publishes WorldState on CH1, subscribes CH3)
     let agg_store = Arc::clone(&store);
     let agg_config = config.aggregator.clone();
+    let agg_mount = config.lidar_mount.clone();
     let agg_handle = thread::Builder::new()
         .name("Aggregator".into())
         .spawn(move || {
-            if let Err(e) = aggregator_loop(&agg_store, &agg_config) {
+            if let Err(e) = aggregator_loop(&agg_store, &agg_config, &agg_mount) {
                 error!("Aggregator error: {:#}", e);
             }
         })?;
@@ -253,7 +254,11 @@ fn sensor_reader_loop(mut source: Box<dyn SensorSource>, store: &Arc<SensorStore
 }
 
 /// Aggregator loop: reads latest sensor data, subscribes CH3, publishes WorldState on CH1.
-fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) -> Result<()> {
+fn aggregator_loop(
+    store: &Arc<SensorStore>,
+    config: &config::AggregatorConfig,
+    mount: &config::LidarMountConfig,
+) -> Result<()> {
     let zmq_ctx = zmq::Context::new();
 
     let mut ch1_pub = Publisher::bind(&zmq_ctx, &config.ch1_endpoint, Channel::WorldState.topic())?;
@@ -271,6 +276,9 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
 
     let mut obstacle_tracker =
         perception::tracker::ClusterTracker::new(perception::tracker::TrackerConfig::default());
+    let cluster_params = perception::tracker::ClusterParams::default();
+    // Extent-gate rejections since the last periodic log (avoid per-scan spam).
+    let mut structure_rejects: u64 = 0;
     let mut last_track_update = Instant::now();
     let mut last_scan_seq: Option<u32> = None;
     let mut prev_detections: Option<limo_proto::DetectionArray> = None;
@@ -333,14 +341,7 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
             // planning must never see the world blink empty.
             prev_detections.clone()
         } else if let Some(scan) = &latest_lidar {
-            let num_points = scan.ranges.len();
-            let angle_inc = if scan.angle_increment > 0.0 {
-                scan.angle_increment
-            } else if num_points > 1 {
-                (scan.angle_max - scan.angle_min) / (num_points - 1) as f32
-            } else {
-                0.0
-            };
+            let angle_inc = scan_angle_increment(scan);
 
             // Project with the pose the robot had AT SCAN TIME (interpolated
             // from the stamped history), not the latest pose: during fast yaw
@@ -348,28 +349,36 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
             let scan_pose = store
                 .pose_at(scan.timestamp_ns)
                 .unwrap_or_else(|| pose.clone());
+            // Beams are measured from the lidar's mount pose on the chassis,
+            // not from base_link center — an unmodeled mount offset displaces
+            // every projected obstacle by exactly that offset.
+            let origin = lidar_world_pose(&scan_pose, mount);
 
             // Valid returns in beam order, with world-frame coordinates.
-            let returns: Vec<(f32, f32, f64, f64)> = scan
-                .ranges
-                .iter()
-                .enumerate()
-                .filter(|(_, &r)| r >= scan.range_min && r <= MAX_OBSTACLE_RANGE)
-                .map(|(i, &range)| {
-                    let angle = scan.angle_min + i as f32 * angle_inc;
-                    let wx = scan_pose.x + range as f64 * (scan_pose.theta + angle as f64).cos();
-                    let wy = scan_pose.y + range as f64 * (scan_pose.theta + angle as f64).sin();
-                    (angle, range, wx, wy)
-                })
-                .collect();
+            let returns = scan_world_returns(scan, origin, MAX_OBSTACLE_RANGE);
             let pts: Vec<(f64, f64)> = returns.iter().map(|&(_, _, x, y)| (x, y)).collect();
+            let beam_ranges: Vec<f64> = returns.iter().map(|&(_, r, _, _)| r as f64).collect();
 
-            let clusters =
-                perception::tracker::cluster_scan_points(&pts, CLUSTER_EPS, CLUSTER_MIN_PTS);
-            let (compact, large): (Vec<_>, Vec<_>) = clusters
-                .into_iter()
-                .partition(|c| c.radius <= COMPACT_CLUSTER_RADIUS);
-            let _ = large; // wall clusters stay in the point representation below
+            // Range-gated (<= cluster max_range), range-adaptive clustering:
+            // returns farther out only feed the sector points and the SLAM
+            // grid — at long range the beam-arc spacing rivals the cluster
+            // eps and wall segments would fragment into phantom objects.
+            let clusters = perception::tracker::cluster_scan_returns(
+                &pts,
+                &beam_ranges,
+                angle_inc as f64,
+                &cluster_params,
+            );
+            // Extent gate: oversized clusters are structure (walls, gate
+            // frames), never tracks. Shape gate: elongated slivers (grazing
+            // wall fragments small enough to slip the extent gate) are
+            // structure too. Both stay in the point representation below and
+            // in the occupancy grid.
+            let (compact, structure): (Vec<_>, Vec<_>) = clusters.into_iter().partition(|c| {
+                c.radius <= perception::tracker::MAX_TRACK_EXTENT
+                    && !c.is_wall_like(&cluster_params)
+            });
+            structure_rejects += structure.len() as u64;
 
             let mut in_compact = vec![false; pts.len()];
             for c in &compact {
@@ -394,10 +403,7 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
                 nearest_per_sector(&static_returns, OBSTACLE_SECTORS)
                     .into_iter()
                     .map(|(angle, range)| {
-                        let wx =
-                            scan_pose.x + range as f64 * (scan_pose.theta + angle as f64).cos();
-                        let wy =
-                            scan_pose.y + range as f64 * (scan_pose.theta + angle as f64).sin();
+                        let (wx, wy) = project_return(origin, angle, range);
                         limo_proto::Detection {
                             object_class: limo_proto::ObjectClass::ObjectObstacle as i32,
                             confidence: 0.8,
@@ -530,6 +536,14 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
                 stats.imu_readings,
                 ch1_pub.msg_count(),
             );
+            if structure_rejects > 0 {
+                debug!(
+                    "Extent/shape gates rejected {} clusters since last report \
+                     (structure stays in grid/sector points)",
+                    structure_rejects
+                );
+                structure_rejects = 0;
+            }
         }
 
         let elapsed = cycle_start.elapsed();
@@ -543,19 +557,85 @@ fn aggregator_loop(store: &Arc<SensorStore>, config: &config::AggregatorConfig) 
 }
 
 /// Obstacle detection range limit (meters) for lidar-derived detections.
-const MAX_OBSTACLE_RANGE: f32 = 3.0;
-/// Adjacent-point distance threshold for scan clustering (meters).
-const CLUSTER_EPS: f64 = 0.25;
-/// Minimum points for a cluster (smaller groups are noise).
-const CLUSTER_MIN_PTS: usize = 3;
-/// Clusters up to this radius are compact objects (cones, boxes, people) and
-/// get tracked; larger ones are walls and stay as sector-sampled points.
-const COMPACT_CLUSTER_RADIUS: f64 = 0.45;
+// 3.0 starved the planner at speed: at 1.8 m/s that is a 1.7s horizon — the
+// robot outran its own map (wedged into cones it discovered at margin
+// distance). 8.0 gives DWA's braking check and the global planner room to
+// react at the 2.2 m/s gauntlet target.
+const MAX_OBSTACLE_RANGE: f32 = 8.0;
+// Clustering does NOT run out to MAX_OBSTACLE_RANGE: cluster formation is
+// range-gated and eps is range-adaptive (see
+// `perception::tracker::ClusterParams`), and tracks are extent-gated at
+// `perception::tracker::MAX_TRACK_EXTENT`. Returns beyond the cluster gate
+// still feed the sector points below and the SLAM grid at the full 8 m.
 /// Angular sectors for obstacle sampling. 72 sectors = 5° each: at the 3 m
 /// range limit a sector spans 0.26 m of arc, under the planner's 0.3 m
 /// inflation radius, so sampled wall points always merge into a continuous
 /// inflated barrier.
 const OBSTACLE_SECTORS: usize = 72;
+
+/// Effective angle step of a scan: the reported increment when present,
+/// otherwise derived from the angular span (gz convention: `num_points`
+/// beams inclusive of both endpoints, step = span / (n - 1)).
+fn scan_angle_increment(scan: &store::types::LidarScan) -> f32 {
+    let num_points = scan.ranges.len();
+    if scan.angle_increment > 0.0 {
+        scan.angle_increment
+    } else if num_points > 1 {
+        (scan.angle_max - scan.angle_min) / (num_points - 1) as f32
+    } else {
+        0.0
+    }
+}
+
+/// Planar world pose of the lidar: the robot pose composed with the
+/// sensor's mount transform on the chassis (base_link → lidar).
+///
+/// The gz model (simulation/models/limo_pro/model.sdf) mounts the lidar at
+/// the base center, so the sim mount is zero; hardware mounts configure
+/// `lidar_mount` in sensperc.yaml.
+fn lidar_world_pose(
+    robot: &store::types::Pose2D,
+    mount: &config::LidarMountConfig,
+) -> (f64, f64, f64) {
+    let (s, c) = robot.theta.sin_cos();
+    (
+        robot.x + mount.x * c - mount.y * s,
+        robot.y + mount.x * s + mount.y * c,
+        robot.theta + mount.yaw,
+    )
+}
+
+/// World position of a single lidar return. `angle` is the beam angle in
+/// the sensor frame: CCW, zero along the sensor's +x (forward) — the gz
+/// gpu_lidar / RPLIDAR convention.
+fn project_return(origin: (f64, f64, f64), angle: f32, range: f32) -> (f64, f64) {
+    let a = origin.2 + angle as f64;
+    (
+        origin.0 + range as f64 * a.cos(),
+        origin.1 + range as f64 * a.sin(),
+    )
+}
+
+/// Project a scan's valid returns into the world frame from the lidar's
+/// world pose. Returns `(beam_angle, range, world_x, world_y)` in beam
+/// order; returns outside `[range_min, max_range]` are dropped.
+fn scan_world_returns(
+    scan: &store::types::LidarScan,
+    origin: (f64, f64, f64),
+    max_range: f32,
+) -> Vec<(f32, f32, f64, f64)> {
+    let angle_inc = scan_angle_increment(scan);
+    scan.ranges
+        .iter()
+        .enumerate()
+        .filter(|(_, &r)| r >= scan.range_min && r <= max_range)
+        .map(|(i, &range)| {
+            let angle = scan.angle_min + i as f32 * angle_inc;
+            let (wx, wy) = project_return(origin, angle, range);
+            (angle, range, wx, wy)
+        })
+        .collect()
+}
 
 /// Keep the nearest return per angular sector.
 ///
@@ -654,6 +734,125 @@ mod tests {
         ranges[100] = 5.0; // above max
         let out = nearest_per_sector(&pairs(&ranges, 0.0), 72);
         assert!(out.is_empty());
+    }
+
+    // ---- Scan → world projection (mount pose + angle convention) ----
+
+    fn scan(angle_min: f32, angle_max: f32, inc: f32, ranges: Vec<f32>) -> store::types::LidarScan {
+        store::types::LidarScan {
+            timestamp_ns: 0,
+            angle_min,
+            angle_max,
+            angle_increment: inc,
+            range_min: 0.1,
+            range_max: 12.0,
+            ranges,
+            intensities: vec![],
+            sequence: 0,
+        }
+    }
+
+    fn pose2d(x: f64, y: f64, theta: f64) -> store::types::Pose2D {
+        store::types::Pose2D { x, y, theta }
+    }
+
+    fn mount(x: f64, y: f64, yaw: f64) -> config::LidarMountConfig {
+        config::LidarMountConfig { x, y, yaw }
+    }
+
+    /// Synthetic scan with a known mount offset: every projected return must
+    /// land on its hand-computed world position to within ±3 cm.
+    ///
+    /// Geometry (all expected values derived by hand, not from the code
+    /// under test): robot at (2, 1) heading +y (θ = π/2); lidar mounted
+    /// 0.30 m forward and 0.10 m left of base center → sensor origin
+    /// (2 - 0.10, 1 + 0.30) = (1.90, 1.30), sensor yaw π/2.
+    #[test]
+    fn projection_with_mount_offset_recovers_world_points_within_3cm() {
+        let mut ranges = vec![20.0_f32; 360]; // 20 m: outside MAX_OBSTACLE_RANGE
+        ranges[0] = 2.0; // sensor +x (= world +y) → (1.90, 3.30)
+        ranges[45] = 1.5; // 45° CCW → world bearing 3π/4
+        ranges[90] = 2.0; // 90° CCW → world -x → (-0.10, 1.30)
+        ranges[180] = 2.0; // behind → world -y → (1.90, -0.70)
+        let s = scan(0.0, TAU, TAU / 360.0, ranges);
+
+        let robot = pose2d(2.0, 1.0, std::f64::consts::FRAC_PI_2);
+        let origin = lidar_world_pose(&robot, &mount(0.30, 0.10, 0.0));
+        let returns = scan_world_returns(&s, origin, MAX_OBSTACLE_RANGE);
+        assert_eq!(returns.len(), 4, "only in-range beams survive filtering");
+
+        let expected = [
+            (1.90, 3.30),
+            (0.839_34, 2.360_66), // (1.90, 1.30) + 1.5 * u(3π/4)
+            (-0.10, 1.30),
+            (1.90, -0.70),
+        ];
+        for (&(_, _, wx, wy), &(ex, ey)) in returns.iter().zip(expected.iter()) {
+            assert!(
+                (wx - ex).abs() < 0.03 && (wy - ey).abs() < 0.03,
+                "projected ({wx:.3}, {wy:.3}) != expected ({ex:.3}, {ey:.3})"
+            );
+        }
+
+        // Negative control — the defect class: ignoring the mount offset
+        // (projecting from base center) displaces every return by the full
+        // mount offset magnitude (~0.32 m here), far outside ±3 cm.
+        let no_mount = lidar_world_pose(&robot, &mount(0.0, 0.0, 0.0));
+        let bad = scan_world_returns(&s, no_mount, MAX_OBSTACLE_RANGE);
+        let (_, _, bx, by) = bad[0];
+        let err = ((bx - 1.90_f64).powi(2) + (by - 3.30_f64).powi(2)).sqrt();
+        assert!(
+            err > 0.25,
+            "unmodeled mount offset must show as a systematic error, got {err:.3}"
+        );
+    }
+
+    /// Beam angle convention: CCW, zero = sensor forward (gz gpu_lidar and
+    /// RPLIDAR). A beam at +90° from a robot facing +x must land at +y.
+    #[test]
+    fn projection_angle_convention_is_ccw_zero_forward() {
+        let s = scan(
+            0.0,
+            TAU,
+            std::f32::consts::FRAC_PI_2,
+            vec![1.0, 2.0, 3.0, 4.0],
+        );
+        let origin = lidar_world_pose(&pose2d(0.0, 0.0, 0.0), &mount(0.0, 0.0, 0.0));
+        let returns = scan_world_returns(&s, origin, MAX_OBSTACLE_RANGE);
+        let expected = [(1.0, 0.0), (0.0, 2.0), (-3.0, 0.0), (0.0, -4.0)];
+        for (&(_, _, wx, wy), &(ex, ey)) in returns.iter().zip(expected.iter()) {
+            assert!(
+                (wx - ex).abs() < 0.03 && (wy - ey).abs() < 0.03,
+                "CCW/zero-forward violated: ({wx:.3}, {wy:.3}) != ({ex}, {ey})"
+            );
+        }
+    }
+
+    /// A mount yaw rotates every beam: sensor twisted +90° on the chassis
+    /// puts its forward beam at the robot's +y.
+    #[test]
+    fn projection_applies_mount_yaw() {
+        let s = scan(0.0, TAU, TAU / 360.0, vec![1.0]);
+        let origin = lidar_world_pose(
+            &pose2d(0.0, 0.0, 0.0),
+            &mount(0.0, 0.0, std::f64::consts::FRAC_PI_2),
+        );
+        let returns = scan_world_returns(&s, origin, MAX_OBSTACLE_RANGE);
+        let (_, _, wx, wy) = returns[0];
+        assert!(wx.abs() < 0.03 && (wy - 1.0).abs() < 0.03);
+    }
+
+    /// Missing angle_increment falls back to span / (n - 1) — the gz
+    /// endpoint-inclusive convention.
+    #[test]
+    fn projection_derives_increment_from_span_when_missing() {
+        let s = scan(0.0, std::f32::consts::PI, 0.0, vec![1.0, 1.0, 1.0]);
+        let origin = lidar_world_pose(&pose2d(0.0, 0.0, 0.0), &mount(0.0, 0.0, 0.0));
+        let returns = scan_world_returns(&s, origin, MAX_OBSTACLE_RANGE);
+        let expected = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)];
+        for (&(_, _, wx, wy), &(ex, ey)) in returns.iter().zip(expected.iter()) {
+            assert!((wx - ex).abs() < 0.03 && (wy - ey).abs() < 0.03);
+        }
     }
 
     #[test]
