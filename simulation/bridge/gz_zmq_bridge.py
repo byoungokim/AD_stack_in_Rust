@@ -22,6 +22,7 @@ from gz.msgs10.twist_pb2 import Twist
 from gz.msgs10.odometry_pb2 import Odometry
 from gz.msgs10.imu_pb2 import IMU
 from gz.msgs10.laserscan_pb2 import LaserScan
+from gz.msgs10.pose_pb2 import Pose
 
 import zmq
 
@@ -52,6 +53,10 @@ class NativeGzBridge:
     """Bridges Gazebo topics to ZMQ using native gz.transport13."""
 
     def __init__(self):
+        # Spawn-anchored true pose (planner frame): (x, y, yaw) or None until
+        # the first /model/limo/pose arrives. anchor is the latched T0.
+        self.true_pose = None
+        self.pose_anchor = None
         # ZMQ
         self.ctx = zmq.Context()
 
@@ -95,6 +100,14 @@ class NativeGzBridge:
         self.gz_node.subscribe(Odometry, "/limo/odom", self._on_odom)
         self.gz_node.subscribe(IMU, "/limo/imu", self._on_imu)
         self.gz_node.subscribe(LaserScan, "/limo/lidar", self._on_lidar)
+        # True world pose from the model's PosePublisher plugin. Wheel odometry
+        # is NOT ground truth: the t=0 physics settle (and any wheel slip)
+        # moves the robot without odometry recording it, leaving the odom
+        # frame rigidly offset from the world — measured 0.25 rad + ~0.6m in
+        # the gauntlet, displacing every projected obstacle. We latch the
+        # first true pose as the frame anchor so downstream keeps the
+        # "planner frame = spawn pose" convention.
+        self.gz_node.subscribe(Pose, "/model/limo/pose", self._on_true_pose)
 
         print("[bridge] Subscribed: /limo/odom, /limo/imu, /limo/lidar")
         print("[bridge] Publishing cmd_vel to /limo/cmd_vel")
@@ -166,6 +179,30 @@ class NativeGzBridge:
             self.last_lidar = msg
             self.last_lidar_ts = time.time()
 
+    def _on_true_pose(self, msg):
+        """Callback: /model/limo/pose (PosePublisher, true world pose).
+
+        Latches the first pose as the frame anchor T0 and stores the current
+        pose expressed in the spawn-anchored (planner) frame: T0^-1 * T(t).
+        """
+        pos = msg.position
+        ori = msg.orientation
+        yaw = math.atan2(
+            2.0 * (ori.w * ori.z + ori.x * ori.y),
+            1.0 - 2.0 * (ori.y * ori.y + ori.z * ori.z)
+        )
+        with self.lock:
+            if self.pose_anchor is None:
+                self.pose_anchor = (pos.x, pos.y, yaw)
+            x0, y0, yaw0 = self.pose_anchor
+            dx, dy = pos.x - x0, pos.y - y0
+            c, s = math.cos(-yaw0), math.sin(-yaw0)
+            self.true_pose = (
+                c * dx - s * dy,
+                s * dx + c * dy,
+                math.atan2(math.sin(yaw - yaw0), math.cos(yaw - yaw0)),
+            )
+
     def _publish_sensor_data(self, x, y, yaw, lin_x, ang_z):
         """Bundle latest sensor data into CH5 SimSensorData."""
         if not HAS_PROTO:
@@ -176,7 +213,13 @@ class NativeGzBridge:
         sd.header.sequence = self.seq
         sd.header.frame_id = "gz"
 
-        # Ground truth pose
+        # Ground truth pose: prefer the spawn-anchored TRUE pose; wheel
+        # odometry (the x/y/yaw arguments) is only the fallback until the
+        # first /model/limo/pose arrives.
+        with self.lock:
+            true_pose = self.true_pose
+        if true_pose is not None:
+            x, y, yaw = true_pose
         sd.ground_truth_pose.x = x
         sd.ground_truth_pose.y = y
         sd.ground_truth_pose.theta = yaw
