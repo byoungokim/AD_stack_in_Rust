@@ -178,9 +178,16 @@ def draw(ax, feed):
             va="top", family="monospace",
             bbox=dict(facecolor="white", alpha=0.75, edgecolor="none"))
 
-    # view window follows the robot
-    ax.set_xlim(rx - 6, rx + 6)
-    ax.set_ylim(ry - 4.5, ry + 4.5)
+    # view window: fixed full-course extent, or follow the robot
+    extent = getattr(draw, "view_extent", None)
+    if extent is not None:
+        x0, y0, x1, y1 = extent
+        ax.set_xlim(x0, x1)
+        ax.set_ylim(y0, y1)
+        ax.set_aspect("equal", adjustable="box")
+    else:
+        ax.set_xlim(rx - 6, rx + 6)
+        ax.set_ylim(ry - 4.5, ry + 4.5)
     handles, labels = ax.get_legend_handles_labels()
     if handles:
         ax.legend(loc="lower right", fontsize=8, framealpha=0.75)
@@ -191,7 +198,17 @@ def main():
     ap.add_argument("--snapshot", type=float, metavar="SECONDS",
                     help="headless: collect for N seconds, save PNG, exit")
     ap.add_argument("--out", default="live_view.png", help="snapshot output path")
+    ap.add_argument("--full", nargs="?", const="-1.5,-4.2,20.5,4.2", metavar="X0,Y0,X1,Y1",
+                    help="fixed bird's-eye view of the whole course instead of "
+                         "following the robot (default extent fits the gauntlet)")
     args = ap.parse_args()
+
+    if args.full:
+        try:
+            draw.view_extent = tuple(float(v) for v in args.full.split(","))
+            assert len(draw.view_extent) == 4
+        except (ValueError, AssertionError):
+            ap.error(f"--full expects X0,Y0,X1,Y1 — got '{args.full}'")
 
     if args.snapshot:
         matplotlib.use("Agg")
