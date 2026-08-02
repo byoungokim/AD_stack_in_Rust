@@ -2,21 +2,194 @@
 
 behavior:
   rate_hz: 5
-  default_speed: 0.5        # m/s
+  # Gauntlet cruise target (course avg > 1.5 m/s needs ~2.2 peaks). Matches
+  # dwa.max_speed and arbitrator safety.max_speed — the whole dynamics chain
+  # is raised together. Per-waypoint NavigationGoal.desired_speed caps
+  # individual legs below this.
+  default_speed: 2.2        # m/s
+  # ObstacleAvoidance speed = factor × leg speed. The old hardwired 0.3 was
+  # sized for a 0.5 m/s default; at 2.2 it dragged the whole slalom to
+  # 0.66 m/s. The DWA speed-scaled margins, high-speed margin growth, and
+  # braking-aware feasibility now carry the safety burden near obstacles.
+  obstacle_avoidance_speed_factor: 0.65
   goal_tolerance: 0.25      # meters; must be reachable before DWA speed decays to 0 near the goal
+  # Stuck-recovery (DrivingState::Recovery)
+  stuck_cycles_before_recovery: 15   # ~1.5s at 10Hz. The pure-pursuit primary executor removes the apex
+                                     # hitches that motivated the old fast trigger (8): recovery is the
+                                     # exception again, so give genuine wedges time to resolve before churning
+  recovery_reverse_max_s: 3.0        # max duration of one slow-reverse burst (phase B)
+  recovery_max_attempts: 3           # full A+B rounds without progress before Hold (ERROR, periodic retry)
+  # Recovery v2 (anti-oscillation, gauntlet-tested failure modes)
+  recovery_reverse_min_m: 0.15       # committed reverse: no forward-feasibility check until this much ACTUAL
+                                     # displacement (or the rear closes mid-maneuver). Round-0 base: attempt
+                                     # round n escalates the gate to min((n+1) * this, recovery_reverse_max_m)
+                                     # — identical short retreats re-run the same failed experiment; escalation
+                                     # shows the 1Hz global replan genuinely new geometry
+  recovery_reverse_max_m: 0.5        # cap on the escalating per-round committed reverse distance; the reverse
+                                     # time allowance scales with the round target (dist/0.1 m/s + 1s slack,
+                                     # floored at recovery_reverse_max_s)
+  recovery_exit_feasible_cycles: 3   # consecutive feasible forward cycles required to exit Recovery
+                                     # (the moved->0.3m exit stays immediate)
+  recovery_progress_reset_m: 0.5     # net displacement from the episode origin that resets the attempt counter
+                                     # (exits alone never reset it; 5s of stable Following also clears)
+  hold_retry_period_s: 10.0          # Hold is not terminal: retry one phase-A round this often
 
 global_planner:
   rate_hz: 1
   algorithm: "astar"         # astar | rrt | dijkstra
   resolution: 0.05           # meters per grid cell
+  # Cap A* steering so its primitives never exceed the curvature DWA/the
+  # arbitrator will execute (max_curvature 2.0 1/m): tan(0.37)/0.2 = 1.94.
+  # The default 0.48 rad emitted 2.6 1/m bends around gate wall tips that DWA
+  # refused as unexecutable — robot walked to the bend, then had to reverse.
+  max_steering_angle: 0.44   # radians (tan(0.44)/0.2 = 2.36, under dwa 2.4)
+  # Soft-clearance layer: cells within clearance_decay_m of an occupied cell
+  # add a traversal penalty decaying linearly from clearance_cost_weight (per
+  # meter of travel at the hard edge) to 0 at the band's outer edge. Centers
+  # paths in gaps when width allows (edge-hugging paths fed DWA straight into
+  # the infeasible margin zone: 33 stuck/reverse episodes at static geometry
+  # in one gauntlet run). Always finite — the 1.1m gate stays traversable,
+  # just costlier than a wide gap. 0.0 disables (old distance+steering cost).
+  clearance_cost_weight: 3.0
+  clearance_decay_m: 0.5     # meters, width of the soft-cost band
+  # Path smoothing (post-processes every successful A* plan before it is
+  # published/tracked): stage A shortcuts waypoint subchains where the
+  # straight segment stays collision-free AND does not reduce the replaced
+  # subchain's min clearance on the chamfer field (never trades A*'s paid-for
+  # detour clearance for edge-hugging); stage B runs curvature-bounded
+  # gradient smoothing (alpha Laplacian + beta clearance push, fixed
+  # endpoints) and resamples to uniform ~0.15m spacing. The result is
+  # rejected — raw path published instead — if any 3-point curvature exceeds
+  # 0.9 x dwa.max_curvature or any 5cm sample violates hard inflation.
+  # Measured cost: ~0.2ms per plan (release) on a 12m slalom path — noise
+  # against the 250ms replan interval.
+  smoothing_enabled: true
+  smoothing_alpha: 0.3            # Laplacian gain per iteration, must be <= 0.5
+  smoothing_clearance_beta: 0.2   # clearance-gradient gain per iteration
+  smoothing_iterations: 50        # cap; curvature relaxation gets the same again
+  # Path hysteresis: a still-valid path on an unchanged goal is only replaced
+  # by a candidate at least this fraction cheaper (smoothed length + soft
+  # clearance cost + the direction penalties below). Kills the 4 Hz corridor
+  # flapping that repeatedly routed the robot into transient pinches on noisy
+  # obstacle snapshots.
+  path_improvement_threshold: 0.15
+  # Bidirectional maneuver planning: motion primitives expand in BOTH travel
+  # directions (same steering set and step size), so a cornered or misaligned
+  # robot gets a PLANNED reverse-then-forward maneuver instead of relying on
+  # the scripted recovery reverses. false = old forward-only search.
+  reverse_enabled: true
+  # Cost (equivalent meters) charged once per direction switch (cusp).
+  # Discourages gratuitous forward/reverse shuttling; also included in the
+  # hysteresis path-cost comparison.
+  direction_switch_penalty: 0.6
+  # Reverse travel costs this multiple of forward travel per meter (reverse
+  # is the blind direction). Must be >= 1.
+  reverse_cost_multiplier: 2.0
+  # Reeds-Shepp analytic goal expansion: nodes within rs_expansion_radius of
+  # the goal attempt an exact curvature-bounded connection (CSC + C|C|C
+  # families, cusps allowed), collision-checked at <=5cm against hard
+  # inflation plus the clearance no-worse rule. Gives plans an exact goal
+  # heading and cuts the search tail.
+  rs_expansion_enabled: true
+  rs_expansion_radius: 2.0   # meters
+  # Start-pocket escape: when the robot ends up wedged INSIDE the grid's hard
+  # inflation (center closer to an obstacle than robot_radius + obstacle
+  # radius — recovery/pursuit execution sometimes stops there), A* used to die
+  # immediately: the start cell and every first-step successor were occupied,
+  # and the robot depended entirely on scripted recovery shuffles. Within this
+  # radius (m) of such a wedged start, the collision check relaxes to the
+  # TRUE robot footprint (obstacle radius + 0.19 physical footprint + 0.03
+  # safety) so the bidirectional planner can plan the trivial escape (reverse,
+  # turn, proceed). Never relaxes past physical overlap, never applies when
+  # the start is free, and the soft clearance cost still applies everywhere.
+  # 0 disables.
+  start_escape_radius: 0.6   # meters
 
 local_planner:
   rate_hz: 10
-  algorithm: "dwa"           # dwa | teb
-  lookahead_distance: 1.0    # meters
-  max_speed: 1.0             # m/s
-  max_angular_speed: 1.5     # rad/s
-  goal_tolerance: 0.1        # meters
+  # Pure-pursuit primary executor: the exact adaptive-lookahead arc onto the
+  # global Hybrid A* path (clearance-centered, curvature-capped), verified by
+  # the SAME sub-stepped collision + braking rollout machinery as DWA samples
+  # and speed-stepped down (80/60/40%, crawl) before deferring to DWA. Fixes
+  # the slalom apex hitch: constant-arc DWA sampling cannot represent the
+  # counter-steer an S-transition needs, pursuit's lookahead point simply
+  # crosses the apex.
+  pursuit:
+    k_v: 1.0            # lookahead gain (s of travel): L = clamp(k_v*|v|, min, max)
+    lookahead_min: 0.6  # m, lookahead floor (crawl stability)
+    lookahead_max: 2.5  # m, lookahead cap
+    a_lat_max: 2.0      # m/s^2 curvature slow-down governor: v <= sqrt(a_lat_max/|kappa|)
+    # Speed cap (magnitude) while executing a PLANNED reverse path segment
+    # (mirrored pure pursuit, lookahead behind, rollout-verified with the
+    # actual signed command). Reverse is the blind direction.
+    reverse_speed_cap: 0.4  # m/s
+  # DWA owns normal avoidance (gauntlet-tested); MPC only for genuinely
+  # extreme curvature. 1.5 handed the tight slalom to MPC and deadlocked
+  # the confidence gate.
+  # Effectively disables the MPC fallback: its random-search optimizer twice
+  # converged on "hold still" near obstacles in the gauntlet (a collision-free
+  # and therefore high-confidence non-plan). DWA + recovery own avoidance.
+  mpc_trigger_curvature: 99.0 # 1/m
+  dwa:
+    # Dynamics raised with the arbitrator envelope (must never exceed it —
+    # a clamped command executes a wider arc than the verified one):
+    # max_curvature 2.0 × 2.2 m/s = 4.4 rad/s fits inside max_angular 4.5.
+    max_speed: 2.2             # m/s
+    max_acceleration: 2.5      # m/s^2
+    max_deceleration: 3.0      # m/s^2, braking assumption of the braking-aware
+                               # feasibility check; <= safety.max_deceleration
+    max_angular_speed: 5.5     # rad/s (2.4 curvature x 2.2 m/s = 5.28)
+    max_curvature: 2.4         # 1/m — matches the arbitrator envelope; the
+                               # physical Ackermann limit is tan(0.48)/0.2=2.6
+    max_angular_accel: 20.0    # rad/s^2 (sim: the steering plugin responds
+                               # within a cycle). Opens the w-window ±2.0/cycle
+                               # so an apex S-transition flips steering sign in
+                               # ~3 cycles instead of 7 — the flip transits the
+                               # near-zero-w pinch faster
+    # Sample counts for the larger windows: v-span 0.5 m/s → 13 samples
+    # (~0.042 m/s), w-span 1.6 rad/s → 15 samples (~0.114 rad/s ≈ κ 0.05 at
+    # cruise). Odd counts keep the current v / current w exactly on the grid
+    # for the continuity anchor. 13×15 = 195 pairs; with ≤5cm sub-stepped
+    # collision checks the 10Hz budget still holds (~1-3ms/cycle measured
+    # scale on Orin-class hardware).
+    v_samples: 13
+    w_samples: 15
+    # Committed rollout horizon. With braking-aware feasibility, a sample at
+    # speed v must have (sim_time·v + v²/(2·max_deceleration) + 0.15m) of
+    # clear arc — at the default 1.5s that demanded 4.2m for 2.2 m/s, which
+    # exists nowhere on the fenced course and silently governed cruise to
+    # ~0.8 m/s. 0.8s keeps the braking guarantee with sane clear-space needs
+    # (2.7m at 2.2 m/s, 1.3m at 1.2 m/s).
+    sim_time: 0.8
+    # Chase the feasible speed ceiling: braking rejection now guards safety,
+    # so scoring should prefer the fastest surviving sample more than the old
+    # crawl-tuned 0.3 — but 0.8 overpowered heading (1.0) and drove the robot
+    # into a wall pocket at the slalom entrance; 0.45 keeps path-following
+    # dominant.
+    velocity_weight: 0.45
+    weight_continuity: 0.1       # penalty on |v - v_prev|/max_speed (smoothness tie-breaker)
+    recovery_margin_scale: 0.8   # recovery phase A: scale of margin above the raw footprint (never below it)
+    # Speed-dependent collision margin: the requirement above the 0.19m
+    # physical footprint lerps from margin_low_speed_scale of the margin at
+    # <= 0.1 m/s up to the full margin at >= 0.3 m/s. 0.22 was a knife-edge
+    # serving both regimes; 0.24 + 0.4 gives cruise a real 5cm margin while
+    # the crawl requirement drops to ~0.21 (tight gaps stay feasible slowly).
+    robot_radius: 0.24           # base collision radius (full requirement at cruise speed)
+    margin_low_speed_scale: 0.4  # fraction of the margin required at crawl (<= 0.1 m/s)
+    # Extra clearance per m/s of OBSTACLE speed (seconds). The speed-scaled
+    # margin above tracks only ROBOT speed, so a crawling robot was allowed
+    # as close to a 0.75 m/s pedestrian as to a cone (brushed one at -0.030m
+    # ground truth). 0.4 adds 0.30m for that pedestrian; static obstacles add
+    # nothing (crawl relief in tight static gaps preserved). Applied in DWA
+    # sample checks + scoring, standstill-escape profiles, and the recovery
+    # reverse swept check.
+    moving_obstacle_margin_gain: 0.4
+    # High-speed margin growth (m per m/s of ROBOT speed above 1.0): the
+    # crawl->cruise lerp tops out at 0.3 m/s and was sized for the old 1.0 m/s
+    # ceiling. Above 1.0 m/s the requirement grows by gain*(v - 1.0) on top of
+    # the full margin (~+0.07m at 2.2) — braking from 2.2 at 3.0 m/s^2 takes
+    # 0.8m and perception latency eats real distance at speed. 0.0 disables.
+    high_speed_margin_gain: 0.03
 
 e2e:
   enabled: false
@@ -26,8 +199,39 @@ e2e:
 
 arbitrator:
   rate_hz: 10
-  safety_envelope:
-    max_speed: 1.0           # m/s
-    max_acceleration: 0.5    # m/s^2
-    max_angular_speed: 1.5   # rad/s
-    max_curvature: 2.0       # 1/m
+  safety:                    # safety envelope (key must match ArbitratorConfig::safety)
+    # Raised coherently with dwa + behavior for the gauntlet speed target.
+    # max_angular_speed must cover max_curvature * max_speed (2.0 * 2.2 =
+    # 4.4 rad/s), or the angular clamp would widen DWA-verified arcs at cruise.
+    max_speed: 2.2           # m/s
+    max_acceleration: 2.5    # m/s^2
+    max_deceleration: 3.0    # m/s^2
+    max_angular_speed: 5.5   # rad/s (covers max_curvature * max_speed = 5.28)
+    # Raised from the conservative 2.0: physical steering (0.48 rad, 0.2m
+    # wheelbase) executes 2.6 1/m; 2.4 makes the slalom weave comfortably
+    # executable at 1.5+ m/s instead of edge-of-feasible.
+    max_curvature: 2.4       # 1/m
+  # Below fallback_min_confidence: E2E mode emergency-stops (no trustworthy
+  # fallback); Traditional/Shadow use the graduated degraded response instead
+  # (zero commands -> controlled envelope stop; feasible commands -> speed cap).
+  fallback_min_confidence: 0.3
+  degraded_speed_cap: 0.15         # m/s cap on low-confidence-but-feasible commands
+  confidence_recovery_cycles: 5    # consecutive good cycles before the cap lifts (hysteresis)
+
+fault_tolerance:
+  world_state_stale_ms: 300    # WorldState (CH1) older than this -> software E-stop (Layer 1)
+  vehicle_state_stale_ms: 500  # VehicleState (CH3) older than this -> warn, odometry fallback degraded
+
+# Prior node-link roadmap layer for global routing: standing course
+# knowledge (nodes at meaningful places, links with usable width + cruise
+# speed caps). Routing = Dijkstra over travel time; Hybrid A* only executes
+# the next ~leg_max_m leg of the route and local deviations. enabled: false
+# restores the old direct-to-mission-waypoint goal flow exactly.
+roadmap:
+  enabled: true
+  file: "config/maps/obstacle_gauntlet_roadmap.yaml"
+  blocked_link_timeout_s: 20.0  # a reported link block expires after this (never permanent)
+  link_block_after_s: 10.0      # no leg progress for this long -> block the leg's link + reroute
+  leg_min_m: 2.0                # leg goal kept until the robot closes within this...
+  leg_max_m: 4.0                # ...then re-placed this far ahead along the route (node-snapped)
+  deviation_m: 1.5              # lateral deviation from the route polyline that forces a reroute

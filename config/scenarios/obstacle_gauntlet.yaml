@@ -7,33 +7,57 @@
 # reports complete=true when the last waypoint is reached.
 name: obstacle_gauntlet
 scenario_type: sequence
-speed_limit: 0.4
+# High-speed profile: course ≈ 18-20m; average > 1.5 m/s needs cruise near
+# 2 m/s with only local slowdowns. Intermediate waypoints are pass-through
+# (wide tolerance, high speed); DWA margins + braking-distance feasibility
+# carry the safety burden, not blanket speed caps.
+speed_limit: 2.2
 
 waypoints:
+  # Fast line: the wide north outer lane (between the slalom corridor wall at
+  # y=1.5 and the arena fence at y~3.6, ~2m free width, cruisable at 2.2),
+  # entered with a gentle left from spawn, exited down the 0.8m channel
+  # between the corridor's east end (x=6.6) and the gate wall (x=7.4).
+  # The bidirectional planner discovered this route itself at high clearance
+  # weight; pinning it as mission waypoints removes route-choice flapping.
+  - x: 0.2
+    y: 2.4
+    theta: 0.0
+    tolerance: 0.6
+    speed: 1.5
+    label: "lane_entry"
+
+  - x: 6.4
+    y: 2.4
+    theta: 0.0
+    tolerance: 0.6
+    speed: 2.2
+    label: "lane_east"
+
   - x: 7.0
     y: 0.0
     theta: 0.0
-    tolerance: 0.35
-    speed: 0.35
+    tolerance: 0.5
+    speed: 1.5
     label: "slalom_exit"
 
   - x: 8.7
     y: 0.9
     theta: 0.0
-    tolerance: 0.3
-    speed: 0.3
+    tolerance: 0.5
+    speed: 1.5
     label: "gate_cleared"
 
   - x: 13.2
     y: 0.0
     theta: 0.0
-    tolerance: 0.4
-    speed: 0.35
+    tolerance: 0.5
+    speed: 2.2
     label: "plaza_crossed"
 
   - x: 17.9
     y: 0.5
     theta: 0.0
     tolerance: 0.35
-    speed: 0.3
+    speed: 1.8
     label: "gauntlet_goal"

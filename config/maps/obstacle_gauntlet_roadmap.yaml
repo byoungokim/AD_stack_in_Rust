@@ -1,0 +1,52 @@
+# Prior node-link roadmap for simulation/worlds/obstacle_gauntlet.sdf
+#
+# Standing global route knowledge for the gauntlet course: nodes at
+# meaningful places, links carrying traversable free width and a cruise
+# speed cap. Routing is Dijkstra over travel time (length / speed); the
+# metric planners (Hybrid A* + DWA) only execute the next short leg of the
+# chosen route. See planning/src/roadmap.rs for the loader/validator.
+#
+# Frame note: `planner` = the planning/odom frame, anchored at the robot
+# spawn pose in the world (-9, 0, yaw 0). Coordinates here are world + (9, 0).
+frame: planner
+
+nodes:
+  - {id: spawn,        x: 0.0,  y: 0.0}
+  - {id: lane_n_w,     x: 0.2,  y: 2.7}   # north outer lane (corridor wall y=1.57, arena fence y=3.9)
+  - {id: lane_n_e,     x: 6.5,  y: 2.7}
+  - {id: chan_e,       x: 7.0,  y: 1.7}   # descent channel: corridor east end (x=6.6) to gate wall (x=7.4)
+  - {id: slalom_exit,  x: 7.0,  y: 0.0}
+  - {id: gate_mid,     x: 7.45, y: 0.9}   # 1.1m gate gap spans y 0.4..1.4 in the wall at x~7.45
+  - {id: gate_e,       x: 8.7,  y: 0.9}
+  - {id: plaza,        x: 13.2, y: 0.0}
+  - {id: goal,         x: 17.9, y: 0.5}
+  # Slalom weave line: cones at (1.6,0.3),(2.8,-0.3),(4.0,0.3),(5.2,-0.3),
+  # (6.1,0.3), r=0.15 — apexes thread the gaps on alternating sides.
+  - {id: apex_0, x: 1.4, y: -0.35}
+  - {id: apex_1, x: 2.6, y: 0.35}
+  - {id: apex_2, x: 3.8, y: -0.35}
+  - {id: apex_3, x: 5.0, y: 0.35}
+  - {id: apex_4, x: 5.9, y: -0.35}
+
+# Links are bidirectional unless `oneway: true`.
+#   width = usable free width (m); speed = cruise cap (m/s) on the link.
+links:
+  - {from: spawn,       to: lane_n_w,    width: 1.6, speed: 1.2}   # gentle left into the lane
+  - {from: lane_n_w,    to: lane_n_e,    width: 1.6, speed: 2.2}
+  - {from: lane_n_e,    to: chan_e,      width: 0.8, speed: 1.0}
+  - {from: chan_e,      to: slalom_exit, width: 0.8, speed: 1.0}
+  - {from: slalom_exit, to: gate_mid,    width: 1.1, speed: 1.0}
+  - {from: gate_mid,    to: gate_e,      width: 1.1, speed: 1.2}
+  - {from: gate_e,      to: plaza,       width: 2.5, speed: 2.2}
+  - {from: plaza,       to: goal,        width: 1.5, speed: 1.8}
+  # Slalom weave chain. Speed 0.8 (not 1.0): 0.6m usable width against a
+  # 0.24m robot radius is a crawl corridor, and at 1.0 the weave's travel
+  # time (7.91s spawn→slalom_exit) undercut the north lane (7.94s) by float
+  # noise — the lane must win the default route decisively; the weave stays
+  # the fallback when lane links are blocked.
+  - {from: spawn,   to: apex_0, width: 0.6, speed: 0.8}
+  - {from: apex_0,  to: apex_1, width: 0.6, speed: 0.8}
+  - {from: apex_1,  to: apex_2, width: 0.6, speed: 0.8}
+  - {from: apex_2,  to: apex_3, width: 0.6, speed: 0.8}
+  - {from: apex_3,  to: apex_4, width: 0.6, speed: 0.8}
+  - {from: apex_4,  to: slalom_exit, width: 0.6, speed: 0.8}
