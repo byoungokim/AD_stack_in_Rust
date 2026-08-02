@@ -22,6 +22,20 @@ kinematics:
   wheelbase: 0.2             # meters (Limo Pro)
   track_width: 0.172         # meters
   max_steering_angle: 0.48   # radians (~27.5 degrees)
+  max_linear_vel: 2.5        # m/s — SIM value for the gauntlet speed target.
+                             # Real Limo Pro hardware tops out ≈ 1.8 m/s; use
+                             # the code default (1.0) or ≤ 1.8 on the robot.
+
+watchdog:
+  command_timeout_ms: 200        # no fresh command → controlled deceleration
+  deceleration_rate: 2.0         # m/s^2, open-loop e-stop ramp; sized so a
+                                 # timeout stop from 2.2 m/s completes in ~1.1s
+                                 # instead of 4+s at the old 0.5
+  heartbeat_dead_ms: 1000        # planning heartbeat dead → e-stop
+  max_command_age_ms: 300        # ControlCommand older than this (wall clock)
+                                 # is treated as NOT received: it neither
+                                 # feeds the watchdog nor reaches the motors
+  stopped_speed_threshold: 0.05  # m/s; explicit e-stop releases only below this
 
 state_publisher:
   rate_hz: 20

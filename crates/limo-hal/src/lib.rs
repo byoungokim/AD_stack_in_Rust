@@ -84,6 +84,15 @@ pub trait VehicleController: Send {
     /// Send a motor command to the vehicle.
     fn send_command(&mut self, cmd: &MotorCommand) -> Result<()>;
 
+    /// Command an immediate emergency stop.
+    ///
+    /// Implementations must bring the vehicle to a stop using the
+    /// strongest mechanism the platform offers (dedicated e-stop
+    /// signalling where available, otherwise a latched zero-velocity
+    /// command). The Control process calls this every cycle while its
+    /// e-stop latch is active, so the call must be idempotent.
+    fn emergency_stop(&mut self) -> Result<()>;
+
     /// Try to receive chassis feedback (non-blocking).
     fn recv_feedback(&mut self) -> Option<ChassisFeedback>;
 

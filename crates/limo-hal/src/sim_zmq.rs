@@ -104,6 +104,12 @@ pub struct SimZmqSensorSource {
     latest_imu: Option<ImuReading>,
     latest_pose: Option<StampedPose>,
     latest_velocity: Option<Twist2D>,
+    /// Capture stamp of the last lidar scan surfaced to the consumer.
+    /// Bundles ship at the 20Hz pose rate but scans refresh at 10Hz, so the
+    /// same physical scan rides in several bundles; without dedup the
+    /// consumer sees it as "new" each time (the HAL sequence is the bundle
+    /// sequence) and double-updates trackers with a halved dt.
+    last_scan_stamp: Option<u64>,
     faults: SimFaultConfig,
     rng: XorShift64,
 }
@@ -128,6 +134,7 @@ impl SimZmqSensorSource {
             latest_imu: None,
             latest_pose: None,
             latest_velocity: None,
+            last_scan_stamp: None,
             faults,
             rng,
         }
@@ -169,27 +176,34 @@ impl SimZmqSensorSource {
             });
         }
         if let Some(scan) = sim.lidar_scan {
-            if !self.should_drop(self.faults.lidar_drop_rate) {
-                // Prefer the scan's own capture stamp: bundles ship at the
-                // pose rate and re-carry the latest (possibly older) scan, so
-                // the bundle timestamp overstates the scan's freshness.
-                let scan_ts = scan
-                    .header
-                    .as_ref()
-                    .map(|h| h.timestamp_ns)
-                    .filter(|&t| t > 0)
-                    .unwrap_or(ts);
-                self.latest_lidar = Some(LidarScan {
-                    timestamp_ns: scan_ts,
-                    angle_min: scan.angle_min,
-                    angle_max: scan.angle_max,
-                    angle_increment: scan.angle_increment,
-                    range_min: scan.range_min,
-                    range_max: scan.range_max,
-                    ranges: scan.ranges,
-                    intensities: scan.intensities,
-                    sequence: seq,
-                });
+            // Prefer the scan's own capture stamp: bundles ship at the
+            // pose rate and re-carry the latest (possibly older) scan, so
+            // the bundle timestamp overstates the scan's freshness.
+            let scan_ts = scan
+                .header
+                .as_ref()
+                .map(|h| h.timestamp_ns)
+                .filter(|&t| t > 0)
+                .unwrap_or(ts);
+            // Deliver each physical scan exactly once: a re-bundled copy of
+            // an already-surfaced capture is skipped (and a fault-dropped
+            // capture must not reappear from a later bundle either, so the
+            // stamp is recorded before the drop check).
+            if self.last_scan_stamp != Some(scan_ts) {
+                self.last_scan_stamp = Some(scan_ts);
+                if !self.should_drop(self.faults.lidar_drop_rate) {
+                    self.latest_lidar = Some(LidarScan {
+                        timestamp_ns: scan_ts,
+                        angle_min: scan.angle_min,
+                        angle_max: scan.angle_max,
+                        angle_increment: scan.angle_increment,
+                        range_min: scan.range_min,
+                        range_max: scan.range_max,
+                        ranges: scan.ranges,
+                        intensities: scan.intensities,
+                        sequence: seq,
+                    });
+                }
             }
         }
         if let Some(imu) = sim.imu {
@@ -368,6 +382,33 @@ impl SimZmqVehicleController {
         (left_rpm, right_rpm, steering)
     }
 
+    /// Publish a SimControlCommand on CH7 with the given e-stop flag.
+    /// The sim consumer (limo-sim-bridge) honors `emergency_stop` by
+    /// halting the vehicle regardless of the velocity fields.
+    fn publish_control(&mut self, cmd: &MotorCommand, emergency_stop: bool) -> Result<()> {
+        let steering = self.compute_steering(cmd);
+        let sequence = self.sequence;
+        if let Some(pub7) = &mut self.ch7_pub {
+            let msg = limo_proto::SimControlCommand {
+                header: Some(limo_proto::Header {
+                    timestamp_ns: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64,
+                    sequence,
+                    frame_id: "".into(),
+                }),
+                linear_velocity: cmd.linear_vel as f32,
+                angular_velocity: cmd.angular_vel as f32,
+                steering_angle: steering,
+                emergency_stop,
+            };
+            pub7.publish(&msg)?;
+            self.sequence += 1;
+        }
+        Ok(())
+    }
+
     fn poll_feedback(&mut self) {
         loop {
             let vs = match self.ch6_sub.as_mut() {
@@ -430,27 +471,11 @@ impl VehicleController for SimZmqVehicleController {
     }
 
     fn send_command(&mut self, cmd: &MotorCommand) -> Result<()> {
-        let steering = self.compute_steering(cmd);
-        let sequence = self.sequence;
-        if let Some(pub7) = &mut self.ch7_pub {
-            let msg = limo_proto::SimControlCommand {
-                header: Some(limo_proto::Header {
-                    timestamp_ns: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64,
-                    sequence,
-                    frame_id: "".into(),
-                }),
-                linear_velocity: cmd.linear_vel as f32,
-                angular_velocity: cmd.angular_vel as f32,
-                steering_angle: steering,
-                emergency_stop: false,
-            };
-            pub7.publish(&msg)?;
-            self.sequence += 1;
-        }
-        Ok(())
+        self.publish_control(cmd, false)
+    }
+
+    fn emergency_stop(&mut self) -> Result<()> {
+        self.publish_control(&MotorCommand::default(), true)
     }
 
     fn recv_feedback(&mut self) -> Option<ChassisFeedback> {
@@ -580,6 +605,69 @@ mod tests {
         assert_eq!(left, 0.0);
         assert_eq!(right, 0.0);
         assert_eq!(steering, 0.0);
+    }
+
+    // ---- Lidar scan deduplication across bundles ----
+
+    /// A CH5 bundle with `bundle_ts`/`seq` carrying a lidar scan whose own
+    /// capture stamp is `scan_ts` (0 = unstamped).
+    fn bundle_with_scan(bundle_ts: u64, seq: u32, scan_ts: u64) -> limo_proto::SimSensorData {
+        limo_proto::SimSensorData {
+            header: Some(limo_proto::Header {
+                timestamp_ns: bundle_ts,
+                sequence: seq,
+                frame_id: "gz".into(),
+            }),
+            lidar_scan: Some(limo_proto::LaserScan {
+                header: Some(limo_proto::Header {
+                    timestamp_ns: scan_ts,
+                    sequence: 0,
+                    frame_id: "lidar".into(),
+                }),
+                angle_min: 0.0,
+                angle_max: std::f32::consts::TAU,
+                angle_increment: 0.0175,
+                range_min: 0.1,
+                range_max: 12.0,
+                ranges: vec![1.0, 2.0, 3.0],
+                intensities: vec![],
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn rebundled_scan_is_delivered_once() {
+        // Bundles ship at 20Hz, scans refresh at 10Hz: two consecutive
+        // bundles carry the SAME capture (same scan stamp). The consumer
+        // must see it exactly once — re-delivery defeats downstream
+        // new-scan detection and double-updates the obstacle tracker.
+        let mut src = SimZmqSensorSource::new();
+        src.apply_sim_sensor(bundle_with_scan(1_000, 1, 500));
+        let first = src.recv_lidar().expect("first capture must surface");
+        assert_eq!(first.timestamp_ns, 500);
+
+        src.apply_sim_sensor(bundle_with_scan(1_050, 2, 500)); // same capture
+        assert!(
+            src.recv_lidar().is_none(),
+            "re-bundled copy of the same capture must be suppressed"
+        );
+
+        src.apply_sim_sensor(bundle_with_scan(1_100, 3, 600)); // new capture
+        let next = src.recv_lidar().expect("new capture must surface");
+        assert_eq!(next.timestamp_ns, 600);
+        assert_eq!(next.sequence, 3, "HAL sequence stays the bundle sequence");
+    }
+
+    #[test]
+    fn unstamped_scans_fall_back_to_bundle_stamp() {
+        // Scans without their own capture stamp (dummy sims) inherit the
+        // bundle stamp, which changes per bundle — delivery per bundle.
+        let mut src = SimZmqSensorSource::new();
+        src.apply_sim_sensor(bundle_with_scan(1_000, 1, 0));
+        assert_eq!(src.recv_lidar().unwrap().timestamp_ns, 1_000);
+        src.apply_sim_sensor(bundle_with_scan(1_050, 2, 0));
+        assert_eq!(src.recv_lidar().unwrap().timestamp_ns, 1_050);
     }
 
     // ---- Fault injection ----

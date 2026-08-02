@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Limo Drive - Control process (Process 3)"
 
+[lib]
+name = "limo_control"
+path = "src/lib.rs"
+
 [[bin]]
 name = "limo_control"
 path = "src/main.rs"
