@@ -6,7 +6,7 @@
 use serde::Deserialize;
 
 use super::{Obstacle, RobotState, VelocityCommand};
-use crate::global_planner::PathWaypoint;
+use crate::global_planner::{Corridor, PathWaypoint};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DwaConfig {
@@ -210,6 +210,20 @@ const COLLISION_CHECK_SPACING_M: f64 = 0.05;
 /// v²/(2·max_deceleration) in the braking-aware feasibility check.
 const BRAKING_REACTION_MARGIN_M: f64 = 0.15;
 
+/// Command-commitment window (s) of the committed-stop rollout: how long an
+/// emitted command can truthfully stay in effect before either the next
+/// verified 10Hz command replaces it or Control's watchdog (200ms command
+/// timeout) forces a stop. Two control cycles.
+const COMMITTED_WINDOW_S: f64 = 0.2;
+
+/// Reaction time (s) billing the braking reaction pad truthfully in the
+/// committed-stop rollout: the pad distance is min(|v| ·
+/// BRAKING_REACTION_TIME_S, BRAKING_REACTION_MARGIN_M), so at ≥ 0.4 m/s the
+/// pad is the same 0.15m the braking extension uses, while a 0.1 m/s crawl
+/// pads 3.75cm in 0.375s — instead of billing the fixed 0.15m DISTANCE at
+/// crawl speed as 1.5 SECONDS of obstacle evolution.
+const BRAKING_REACTION_TIME_S: f64 = 0.375;
+
 /// Substep count so that one `sim_dt` integration step at speed `v` is
 /// collision-checked at least every `COLLISION_CHECK_SPACING_M` meters.
 fn substeps_for(v: f64, sim_dt: f64) -> usize {
@@ -356,14 +370,40 @@ pub struct DwaPlanner {
     /// Linear speed of the previously emitted command, for the continuity
     /// term. None before the first cycle (falls back to the measured speed).
     prev_cmd_v: Option<f64>,
+    /// Active reference corridor (roadmap route tube), when a route is being
+    /// followed. The sample loop hard-rejects endpoints outside the tube and
+    /// soft-penalizes lateral offset, so the FALLBACK sampler leans toward
+    /// the same reference the global planner follows instead of chasing the
+    /// carrot into wall-tip pockets outside the route. None (default, and
+    /// whenever no route is active): the historical unconstrained sampler.
+    corridor: Option<Corridor>,
 }
+
+/// DWA-score gain applied to the corridor's configured `cost_weight`: the A*
+/// weight is charged per meter of step length, the DWA penalty per unit of
+/// normalized lateral ratio, so the raw weight (≈2.0) would drown the other
+/// score terms (≤1.0 each). Scaled down it biases ties and near-ties toward
+/// the reference without overriding obstacle or heading preferences.
+const CORRIDOR_SCORE_GAIN: f64 = 0.15;
+
+/// Escape exemption drift: from a pose already OUTSIDE the corridor's hard
+/// bound, samples may end at most this much farther from the reference than
+/// the pose is — re-entry stays open, wandering deeper does not.
+const CORRIDOR_ESCAPE_DRIFT_M: f64 = 0.10;
 
 impl DwaPlanner {
     pub fn new(config: DwaConfig) -> Self {
         Self {
             config,
             prev_cmd_v: None,
+            corridor: None,
         }
+    }
+
+    /// Install (or clear) the reference corridor used by the sample loop.
+    /// Called once per planning cycle by the LocalPlanner owner.
+    pub fn set_corridor(&mut self, corridor: Option<Corridor>) {
+        self.corridor = corridor;
     }
 
     /// Collision radius for recovery phase A: the margin above the physical
@@ -449,6 +489,14 @@ impl DwaPlanner {
         // legitimate choice to stop (e.g. already at the goal).
         let mut motion_feasible = false;
 
+        // Corridor state for this window: when the CURRENT pose is already
+        // outside the hard bound (wedged in a pocket, or the route was just
+        // rebuilt underneath the robot), the hard endpoint rejection would
+        // veto every sample — the escape exemption instead requires samples
+        // not to drift materially FARTHER from the reference than the pose
+        // already is, so the sampler can only re-enter or hold.
+        let pose_offset = self.corridor.as_ref().map(|c| c.offset(state.x, state.y));
+
         for vi in 0..self.config.v_samples {
             let v = v_min + vi as f64 * v_step;
 
@@ -479,6 +527,28 @@ impl DwaPlanner {
                 if traj.min_obstacle_dist < required || traj.braking_min_dist < required {
                     continue;
                 }
+
+                // Corridor bound on the sample ENDPOINT (route tube): inside
+                // the tube, endpoints beyond the hard bound are rejected;
+                // from a pose already outside, only samples drifting farther
+                // away than the escape drift are rejected (re-entry stays
+                // open). The soft lateral penalty below handles direction.
+                let end_offset = self
+                    .corridor
+                    .as_ref()
+                    .map(|c| c.offset(traj.end_x, traj.end_y));
+                if let (Some(c), Some(end_off), Some(pose_off)) =
+                    (self.corridor.as_ref(), end_offset, pose_offset)
+                {
+                    let limit = if pose_off <= c.hard_bound() {
+                        c.hard_bound()
+                    } else {
+                        pose_off + CORRIDOR_ESCAPE_DRIFT_M
+                    };
+                    if end_off > limit {
+                        continue;
+                    }
+                }
                 if v > 1e-9 {
                     motion_feasible = true;
                 }
@@ -491,12 +561,22 @@ impl DwaPlanner {
                 // Continuity: near-tied corridors resolve toward the previous
                 // command instead of jumping across the velocity window.
                 let continuity_penalty = (v - prev_v).abs() / self.config.max_speed.max(0.1);
+                // Corridor soft pull: normalized lateral ratio at the sample
+                // endpoint, weighted by the route's configured pull scaled
+                // for the DWA score range (see CORRIDOR_SCORE_GAIN).
+                let corridor_penalty = match (self.corridor.as_ref(), end_offset) {
+                    (Some(c), Some(off)) => {
+                        CORRIDOR_SCORE_GAIN * c.cost_weight() * (off / c.half_width())
+                    }
+                    _ => 0.0,
+                };
 
                 let score = self.config.heading_weight * heading_score
                     - self.config.distance_weight * distance_score
                     + self.config.velocity_weight * velocity_score
                     + self.config.obstacle_weight * obstacle_score
-                    - self.config.weight_continuity * continuity_penalty;
+                    - self.config.weight_continuity * continuity_penalty
+                    - corridor_penalty;
 
                 let scored = SimTrajectory { score, ..traj };
 
@@ -577,6 +657,10 @@ impl DwaPlanner {
             return None;
         }
         let n = self.config.w_samples.max(3);
+        // Same corridor endpoint bound as the standard sample loop (with the
+        // outside-pose escape drift): a committed escape profile must not
+        // charge out of the route tube either.
+        let pose_offset = self.corridor.as_ref().map(|c| c.offset(state.x, state.y));
         // (score, kappa, worst_margin)
         let mut best: Option<(f64, f64, f64)> = None;
         for i in 0..n {
@@ -613,9 +697,7 @@ impl DwaPlanner {
                     theta += w * sub_dt;
                     t += sub_dt;
                     for obs in obstacles {
-                        let (ox, oy) = obs.position_at(t);
-                        let d = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt()
-                            - obs.effective_radius_at(t)
+                        let d = obs.net_distance_at(x, y, t)
                             - self.config.moving_obstacle_margin_gain * obs.speed();
                         if d < min_clear {
                             min_clear = d;
@@ -628,6 +710,16 @@ impl DwaPlanner {
             }
             if worst_margin < 0.0 {
                 continue; // profile collides somewhere along the horizon
+            }
+            if let (Some(c), Some(pose_off)) = (self.corridor.as_ref(), pose_offset) {
+                let limit = if pose_off <= c.hard_bound() {
+                    c.hard_bound()
+                } else {
+                    pose_off + CORRIDOR_ESCAPE_DRIFT_M
+                };
+                if c.offset(x, y) > limit {
+                    continue; // profile ends outside the route tube
+                }
             }
             let score = min_clear.min(1.0) + 0.2 * heading_cost(x, y, theta, goal);
             if best.is_none_or(|(s, _, _)| score > s) {
@@ -702,6 +794,11 @@ pub struct ArcRollout {
     /// (`wedged_allowance`) — an obstacle the robot is already inside the
     /// requirement of must not veto a command that only moves away from it.
     pub per_obstacle_min: Vec<f64>,
+    /// Worst net clearance PER OBSTACLE over the braking extension ONLY.
+    /// `per_obstacle_braking_min[i] <= per_obstacle_min[i]` means the braking
+    /// extension (not the horizon rollout) produced obstacle i's minimum —
+    /// the pursuit Blocked instrumentation names the failing phase with it.
+    pub per_obstacle_braking_min: Vec<f64>,
 }
 
 /// Wedged-start clearance allowance for one obstacle: never require more net
@@ -718,10 +815,23 @@ pub fn wedged_allowance(
     required: f64,
     moving_margin_gain: f64,
 ) -> f64 {
-    let d0 = ((state.x - obs.x).powi(2) + (state.y - obs.y).powi(2)).sqrt()
-        - obs.radius
-        - moving_margin_gain * obs.speed();
-    required.min(d0)
+    // Acceptance slack against boundary locks: a robot sitting EXACTLY on the
+    // requirement boundary (live cases: net 0.209 vs required 0.210, then
+    // net 0.199 vs 0.200, at wall tips) had every command rejected by
+    // float-scale jitter — the allowance matched the pose clearance to the
+    // millimeter, so any arc whose minimum dipped a hair below the pose value
+    // lost, and 1cm of slack still deadlocked when the shortfall landed right
+    // at the slack edge. 2cm of slack absorbs the whole observed jitter band,
+    // and the physical floor below keeps the larger slack from ever
+    // authorizing an approach into the footprint itself.
+    const WEDGED_SLACK_M: f64 = 0.02;
+    let d0 = obs.net_distance_at(state.x, state.y, 0.0) - moving_margin_gain * obs.speed();
+    // Never let the slack demand less net clearance than the physical
+    // footprint plus 5mm — except when the robot ALREADY sits closer than
+    // that, where the allowance holds the line at d0 (no closer) instead of
+    // demanding clearance the pose doesn't have.
+    let floor = (ROBOT_FOOTPRINT_RADIUS + 0.005).min(d0);
+    (required.min(d0) - WEDGED_SLACK_M).max(floor)
 }
 
 /// Forward-simulate a constant (v, w) arc and report worst clearances.
@@ -772,10 +882,7 @@ pub fn simulate_arc(
         // reduced by the moving-obstacle margin — a fast obstacle demands
         // extra clearance regardless of how slowly the ROBOT moves.
         for (i, obs) in obstacles.iter().enumerate() {
-            let (ox, oy) = obs.position_at(t);
-            let d = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt()
-                - obs.effective_radius_at(t)
-                - config.moving_obstacle_margin_gain * obs.speed();
+            let d = obs.net_distance_at(x, y, t) - config.moving_obstacle_margin_gain * obs.speed();
             if d < min_dist {
                 min_dist = d;
             }
@@ -799,6 +906,7 @@ pub fn simulate_arc(
     // sinθ). The old `v > 1e-9` guard silently skipped the braking check
     // for every reverse command.
     let mut braking_min = f64::INFINITY;
+    let mut per_obstacle_braking_min = vec![f64::INFINITY; obstacles.len()];
     if v.abs() > 1e-9 && !obstacles.is_empty() && config.max_deceleration > 0.0 {
         let sigma = v.signum();
         let kappa = w / v;
@@ -821,15 +929,16 @@ pub fn simulate_arc(
             x += sigma * theta.cos() * ds;
             y += sigma * theta.sin() * ds;
             for (i, obs) in obstacles.iter().enumerate() {
-                let (ox, oy) = obs.position_at(t);
-                let d = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt()
-                    - obs.effective_radius_at(t)
-                    - config.moving_obstacle_margin_gain * obs.speed();
+                let d =
+                    obs.net_distance_at(x, y, t) - config.moving_obstacle_margin_gain * obs.speed();
                 if d < braking_min {
                     braking_min = d;
                 }
                 if d < per_obstacle_min[i] {
                     per_obstacle_min[i] = d;
+                }
+                if d < per_obstacle_braking_min[i] {
+                    per_obstacle_braking_min[i] = d;
                 }
             }
         }
@@ -842,7 +951,77 @@ pub fn simulate_arc(
         min_obstacle_dist: min_dist,
         braking_min_dist: braking_min,
         per_obstacle_min,
+        per_obstacle_braking_min,
     }
+}
+
+/// Truthful committed-stop rollout: the commanded (v, w) arc held for the
+/// command-commitment window (`COMMITTED_WINDOW_S` — one watchdog timeout,
+/// after which either a newly verified command or a stop replaces it), then
+/// a speed-proportional reaction pad, then a `max_deceleration`-limited stop
+/// along the same arc. Obstacle propagation, uncertainty inflation, and the
+/// moving-obstacle margin are billed over this SAME truthful timeline — the
+/// answer to "may this command be emitted NOW while a margin-respecting stop
+/// remains available", per the safety contract.
+///
+/// This is deliberately NOT the fixed 1.5s horizon of `simulate_arc`: that
+/// horizon extrapolates the instantaneous command far beyond its actual
+/// commitment (a 0.1 m/s crawl is billed 1.5s of holding plus 1.5s more to
+/// creep through the fixed 0.15m reaction pad — 3 seconds of phantom
+/// obstacle evolution for a command that truthfully stops in ~4cm/0.6s),
+/// which let a tracked obstacle with a modest velocity estimate veto every
+/// slow command from meters away (the entry-turn Blocked freeze). The
+/// pursuit verifier pairs this truthful dynamic check with the full
+/// anticipatory `simulate_arc` sweep against obstacles at their CURRENT
+/// positions, so static geometry keeps the exact old look-ahead.
+///
+/// Returns the worst net clearance per obstacle (same semantics as
+/// `ArcRollout::per_obstacle_min`).
+pub fn simulate_committed_stop(
+    config: &DwaConfig,
+    state: &RobotState,
+    v: f64,
+    w: f64,
+    obstacles: &[Obstacle],
+) -> Vec<f64> {
+    let mut per_obstacle_min = vec![f64::INFINITY; obstacles.len()];
+    if obstacles.is_empty() || v.abs() <= 1e-9 || config.max_deceleration <= 0.0 {
+        return per_obstacle_min;
+    }
+    let sigma = v.signum();
+    let kappa = w / v;
+    let speed = v.abs();
+    // Arc lengths of the three phases: commitment at v, reaction pad at v,
+    // decelerating stop.
+    let commit_len = speed * COMMITTED_WINDOW_S;
+    let react_len = (speed * BRAKING_REACTION_TIME_S).min(BRAKING_REACTION_MARGIN_M);
+    let brake_len = speed * speed / (2.0 * config.max_deceleration);
+    let total = commit_len + react_len + brake_len;
+    let n = (total / COLLISION_CHECK_SPACING_M).ceil().max(1.0) as usize;
+    let ds = total / n as f64;
+    let (mut x, mut y, mut theta) = (state.x, state.y, state.theta);
+    let (mut s, mut t) = (0.0, 0.0);
+    for _ in 0..n {
+        s += ds;
+        // Truthful speed at arc position s: constant through commitment and
+        // reaction, then v² − 2a·s' (floored so the time integral is finite).
+        let decel_s = (s - commit_len - react_len).max(0.0);
+        let sp = (speed * speed - 2.0 * config.max_deceleration * decel_s)
+            .max(0.0)
+            .sqrt()
+            .max(0.05);
+        t += ds / sp;
+        theta += sigma * kappa * ds;
+        x += sigma * theta.cos() * ds;
+        y += sigma * theta.sin() * ds;
+        for (i, obs) in obstacles.iter().enumerate() {
+            let d = obs.net_distance_at(x, y, t) - config.moving_obstacle_margin_gain * obs.speed();
+            if d < per_obstacle_min[i] {
+                per_obstacle_min[i] = d;
+            }
+        }
+    }
+    per_obstacle_min
 }
 
 /// Velocity preference: 1.0 at the target speed, falling off linearly with
@@ -912,6 +1091,75 @@ fn normalize_angle(angle: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn committed_stop_bills_truthful_time_not_horizon_time() {
+        // Crawl command (0.1 m/s) with a tracked obstacle 1.4m ahead
+        // carrying a 0.3 m/s approach estimate. Truthful execution (0.2s
+        // commitment + 3.75cm reaction + ~2mm braking, ~0.6s total) never
+        // lets the obstacle anywhere near the robot: worst net clearance
+        // stays generous. The old full-horizon + fixed-0.15m-pad billing
+        // charged this same command ~3 seconds of obstacle evolution and
+        // vetoed it — the entry-turn freeze.
+        let cfg = DwaConfig::default();
+        let state = RobotState {
+            x: 0.2,
+            y: 0.3,
+            theta: 0.0,
+            linear_vel: 0.1,
+            angular_vel: 0.0,
+        };
+        let cone = vec![Obstacle {
+            x: 1.6,
+            y: 0.3,
+            vx: -0.3,
+            vy: 0.0,
+            radius: 0.2,
+            ..Default::default()
+        }];
+        let mins = simulate_committed_stop(&cfg, &state, 0.1, 0.2, &cone);
+        assert!(
+            mins[0] > 0.5,
+            "truthful crawl stop must keep the distant mover clear, got {}",
+            mins[0]
+        );
+
+        // A genuinely imminent mover (0.5m ahead at 0.9 m/s toward the
+        // robot) violates the committed-stop envelope even at crawl.
+        let charging = vec![Obstacle {
+            x: 0.7,
+            y: 0.3,
+            vx: -0.9,
+            vy: 0.0,
+            radius: 0.2,
+            ..Default::default()
+        }];
+        let mins = simulate_committed_stop(&cfg, &state, 0.1, 0.0, &charging);
+        assert!(
+            mins[0] < 0.0,
+            "imminent mover must violate the committed envelope, got {}",
+            mins[0]
+        );
+
+        // Reverse command: the committed stop sweeps backwards.
+        let behind = vec![Obstacle::point(-0.05, 0.0)];
+        let state0 = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: -0.4,
+            angular_vel: 0.0,
+        };
+        let mins = simulate_committed_stop(&cfg, &state0, -0.4, 0.0, &behind);
+        assert!(
+            mins[0] < 0.05,
+            "reverse committed stop must close on the point behind, got {}",
+            mins[0]
+        );
+        // Zero speed: no sweep, infinite clearance report.
+        let mins = simulate_committed_stop(&cfg, &state0, 0.0, 0.0, &behind);
+        assert!(mins[0].is_infinite());
+    }
 
     #[test]
     fn simulate_arc_reverse_command_sweeps_and_brakes_backwards() {
@@ -1013,6 +1261,7 @@ mod tests {
             vx: 0.0,
             vy: 0.5,
             radius: 0.15,
+            ..Default::default()
         };
         let mut parked = crossing.clone();
         parked.vy = 0.0;
@@ -1059,6 +1308,7 @@ mod tests {
             vx: 0.0,
             vy: 0.0,
             radius: 0.3,
+            ..Default::default()
         };
         let cmd = planner.compute(&state, &path, &[fat], 0.5);
         let point = Obstacle::point(0.8, 0.4);
@@ -1392,6 +1642,7 @@ mod tests {
             vx: 0.2,
             vy: 0.0,
             radius: 0.0,
+            ..Default::default()
         };
 
         let cmd = planner.compute(&state, &path, &[closing], 0.5);
@@ -1485,6 +1736,7 @@ mod tests {
             vx: 0.0,
             vy: 0.0,
             radius: 0.1,
+            ..Default::default()
         };
         let cmd = planner.compute(&state, &path, &[cone], 0.5);
         assert_eq!(cmd.linear_x, 0.0);
@@ -1602,6 +1854,7 @@ mod tests {
             vx,
             vy: 0.0,
             radius: 0.0,
+            ..Default::default()
         };
 
         // Static: 0.25m clearance > 0.21 crawl requirement — accepted.
@@ -1673,6 +1926,7 @@ mod tests {
             vx: 0.0,
             vy: 0.0,
             radius: 0.1,
+            ..Default::default()
         };
         let mut mover = Obstacle {
             x: 1.2,
@@ -1680,6 +1934,7 @@ mod tests {
             vx: -0.2, // closing on the robot along -x
             vy: 0.0,
             radius: 0.1,
+            ..Default::default()
         };
 
         let mut planner = DwaPlanner::new(config.clone());
@@ -2018,5 +2273,181 @@ mod tests {
         }
         .validate()
         .is_ok());
+    }
+
+    #[test]
+    fn test_box_obstacles_open_passages_their_circles_close() {
+        // Two 0.4m cubes with 0.55m between their FACES: driving straight
+        // through the middle at 0.3 m/s needs the full 0.24m requirement.
+        // Oriented boxes leave 0.275m of half-width — passable. Their
+        // circumscribed circles (r=0.283) leave 0.192m — refused. This is
+        // the narrow-passage conservatism the rectangle removes, verified
+        // on the shared sweep machinery every executor uses.
+        let config = DwaConfig::default();
+        let state = RobotState {
+            x: -0.1,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.3,
+            angular_vel: 0.0,
+        };
+        let boxes = vec![
+            Obstacle::boxed(0.3, 0.475, 0.2, 0.2, 0.0),
+            Obstacle::boxed(0.3, -0.475, 0.2, 0.2, 0.0),
+        ];
+        let circles: Vec<Obstacle> = boxes
+            .iter()
+            .map(|b| Obstacle {
+                x: b.x,
+                y: b.y,
+                radius: b.radius, // the circumscribed fallback
+                ..Default::default()
+            })
+            .collect();
+        let required = speed_scaled_radius(
+            0.3,
+            config.robot_radius,
+            config.margin_low_speed_scale,
+            config.high_speed_margin_gain,
+        );
+        let through = simulate_arc(&config, &state, 0.3, 0.0, &boxes);
+        assert!(
+            through.min_obstacle_dist >= required,
+            "box passage must clear the sweep: {:.3} vs required {:.3}",
+            through.min_obstacle_dist,
+            required
+        );
+        let blocked = simulate_arc(&config, &state, 0.3, 0.0, &circles);
+        assert!(
+            blocked.min_obstacle_dist < required,
+            "circle model must refuse the same sweep: {:.3} vs required {:.3}",
+            blocked.min_obstacle_dist,
+            required
+        );
+    }
+
+    #[test]
+    fn test_wedged_allowance_slack_band_and_physical_floor() {
+        let at_origin = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.0,
+            angular_vel: 0.0,
+        };
+        // Full clearance, generous requirement: the 2cm slack applies whole
+        // (0.30 - 0.02 = 0.28; the 0.195 floor is far below).
+        let far = Obstacle::point(1.0, 0.0);
+        assert!((wedged_allowance(&at_origin, &far, 0.30, 0.0) - 0.28).abs() < 1e-9);
+        // The live deadlock: requirement 0.200, arcs bottoming at 0.198.
+        // The slack would allow 0.180 but the physical floor holds 0.195 —
+        // and 0.198 clears it, so the boundary-riding arc proceeds.
+        let allow = wedged_allowance(&at_origin, &far, 0.200, 0.0);
+        assert!((allow - 0.195).abs() < 1e-9);
+        assert!(allow < 0.198, "live-deadlock arc (net 0.198) must pass");
+        // Wedged ON the boundary (pose net clearance 0.199 < required):
+        // allowance drops to the floor, not below it.
+        let boundary = Obstacle::point(0.199, 0.0);
+        assert!((wedged_allowance(&at_origin, &boundary, 0.21, 0.0) - 0.195).abs() < 1e-9);
+        // Wedged INSIDE the floor (pose net 0.192): the allowance holds the
+        // line at d0 — commands may keep the distance, never shrink it.
+        let deep = Obstacle::point(0.192, 0.0);
+        assert!((wedged_allowance(&at_origin, &deep, 0.21, 0.0) - 0.192).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_dwa_corridor_hard_bound_rejects_offroute_window() {
+        // Reference tube along the x-axis (hard bound 0.5m). The robot sits
+        // near the edge at (0, 0.4) HEADING STRAIGHT OUT of the tube at
+        // 0.5 m/s, carrot placed off-route to tempt the sampler. Every
+        // reachable sample (v ≥ 0.25 over the 1.5s horizon) ends beyond the
+        // bound → the corridor-constrained window must be infeasible, while
+        // the unconstrained control window happily chases the carrot out.
+        let corridor =
+            Corridor::new(vec![(0.0, 0.0), (10.0, 0.0)], 0.5, 2.0, 1.0).expect("valid corridor");
+        let state = RobotState {
+            x: 0.0,
+            y: 0.4,
+            theta: std::f64::consts::FRAC_PI_2,
+            linear_vel: 0.5,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 0.0,
+            y: 4.0,
+            theta: std::f64::consts::FRAC_PI_2,
+            steering: 0.0,
+            dir: Default::default(),
+        }];
+
+        let mut unconstrained = DwaPlanner::new(DwaConfig::default());
+        let free = unconstrained.compute(&state, &path, &[], 1.0);
+        assert!(
+            free.linear_x > 0.0,
+            "control: without the corridor the sampler chases the carrot, got v={}",
+            free.linear_x
+        );
+
+        let mut constrained = DwaPlanner::new(DwaConfig::default());
+        constrained.set_corridor(Some(corridor));
+        let bound = constrained.compute(&state, &path, &[], 1.0);
+        assert!(
+            bound.linear_x == 0.0 && bound.confidence <= 0.1 + 1e-6,
+            "corridor must reject the off-route window, got v={} conf={}",
+            bound.linear_x,
+            bound.confidence
+        );
+    }
+
+    #[test]
+    fn test_dwa_corridor_escape_exemption_allows_reentry_only() {
+        // Robot stranded OUTSIDE the tube (offset 1.0 vs bound 0.3): samples
+        // that re-enter are exempt from the hard bound; samples drifting
+        // farther out are not. Facing the tube → moves; facing away → stops.
+        let corridor =
+            Corridor::new(vec![(0.0, 0.0), (10.0, 0.0)], 0.3, 2.0, 1.0).expect("valid corridor");
+        let toward = RobotState {
+            x: 0.0,
+            y: 1.0,
+            theta: -std::f64::consts::FRAC_PI_2,
+            linear_vel: 0.5,
+            angular_vel: 0.0,
+        };
+        let path = vec![PathWaypoint {
+            x: 0.0,
+            y: -1.0,
+            theta: -std::f64::consts::FRAC_PI_2,
+            steering: 0.0,
+            dir: Default::default(),
+        }];
+        let mut planner = DwaPlanner::new(DwaConfig::default());
+        planner.set_corridor(Some(corridor.clone()));
+        let reenter = planner.compute(&toward, &path, &[], 1.0);
+        assert!(
+            reenter.linear_x > 0.0,
+            "re-entry from outside the tube must stay open, got v={}",
+            reenter.linear_x
+        );
+
+        let away = RobotState {
+            theta: std::f64::consts::FRAC_PI_2,
+            ..toward
+        };
+        let away_path = vec![PathWaypoint {
+            x: 0.0,
+            y: 4.0,
+            theta: std::f64::consts::FRAC_PI_2,
+            steering: 0.0,
+            dir: Default::default(),
+        }];
+        let mut planner = DwaPlanner::new(DwaConfig::default());
+        planner.set_corridor(Some(corridor));
+        let drift = planner.compute(&away, &away_path, &[], 1.0);
+        assert!(
+            drift.linear_x == 0.0 && drift.confidence <= 0.1 + 1e-6,
+            "drifting farther from the tube must be rejected, got v={} conf={}",
+            drift.linear_x,
+            drift.confidence
+        );
     }
 }

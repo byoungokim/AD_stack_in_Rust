@@ -30,8 +30,8 @@ use behavior::{BehaviorInput, BehaviorPlanner, RecoveryPhase};
 use config::{load_config, PlanningConfig};
 use e2e::E2EInference;
 use global_planner::{
-    path_cost, path_remains_valid_with_escape, smoother, start_escape_zone, CostPenalties,
-    HybridAStar, OccupancyGrid, PathWaypoint, PhysicalObstacle, Pose,
+    path_cost, path_remains_valid_with_escape, smoother, start_escape_zone, Corridor,
+    CostPenalties, HybridAStar, OccupancyGrid, PathWaypoint, PhysicalObstacle, Pose,
 };
 use local_planner::dwa::speed_scaled_radius;
 use local_planner::{
@@ -55,6 +55,43 @@ const PLAN_ZERO_SPEED: f64 = 0.02;
 /// Distance the robot must close toward the route leg goal to count as
 /// progress for the blocked-link watchdog (absorbs pose jitter).
 const LEG_PROGRESS_EPS_M: f64 = 0.05;
+/// Consecutive pursuit TargetBehind deferrals (10Hz cycles) before the
+/// retained global path is declared heading-stale and dropped. See the
+/// stale-heading invalidation in the main loop for the transient-vs-stale
+/// calibration.
+const TARGET_BEHIND_DROP_CYCLES: u32 = 5;
+/// Consecutive pursuit Blocked deferrals (10Hz cycles) before the retained
+/// global path is declared clearance-stale (wall-hugging) and dropped.
+/// Longer than the TargetBehind window: transient Blocked bursts also occur
+/// against legitimately narrow passages where the path is fine and a mover
+/// or noise spike clears within a few cycles.
+const BLOCKED_DROP_CYCLES: u32 = 8;
+/// Minimum retained-path length (waypoints, ~0.25m spacing) for the
+/// blocked-streak drop: shorter paths are final approaches whose replan
+/// cannot differ (the goal pinch IS the blockage) — recovery and the
+/// endgame direct approach own those.
+const BLOCKED_DROP_MIN_WAYPOINTS: usize = 8;
+/// Consecutive failed replans (4Hz) before an A* failure counts as leg
+/// obstruction for the blocked-link watchdog — one transient failure
+/// during a maneuver flipped whole routes (replay t≈13s, t≈35s).
+const ASTAR_BLAME_MIN_FAILS: u32 = 4;
+/// Lateral distance (m) from the robot to the retained global path's nearest
+/// waypoint beyond which the path loses its hysteresis retention privilege
+/// (see the pose-consistency check at the replan decision).
+const PATH_OFFSET_INVALIDATE_M: f64 = 0.5;
+/// Endgame direct approach: within this distance of the mission goal, an
+/// EMPTY global path is handed to DWA as a single-waypoint path at the goal
+/// instead of the deliberate confident stop. Hybrid A* can fail persistently
+/// when the goal sits inside hard inflation (cluttered plaza), and the
+/// confident stop never trips the stuck detector — the live run parked
+/// 0.81m short of a 0.35m tolerance forever. DWA's sampling is fully
+/// collision-checked (crawl requirement below A*'s hard inflation), so it
+/// closes tolerance-scale gaps or reports infeasible honestly.
+const GOAL_DIRECT_APPROACH_M: f64 = 2.0;
+/// Margin (m) the reference-corridor sub-polyline extends past the robot's
+/// route projection and past the leg goal, so plan start/end (and the RS
+/// goal tail) sit comfortably inside the tube.
+const CORRIDOR_END_MARGIN_M: f64 = 0.5;
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -224,6 +261,9 @@ fn main() -> Result<()> {
     let mut last_replace_log = Instant::now() - Duration::from_secs(60);
     // Rate limiter for the hierarchy-fallback INFO log (scripted recovery
     // reverse engaging while a global path exists — countable in sim logs).
+    let mut target_behind_streak: u32 = 0;
+    let mut blocked_streak: u32 = 0;
+    let mut astar_fail_streak: u32 = 0;
     let mut last_scripted_fallback_log = Instant::now() - Duration::from_secs(60);
     // A goal counts as "reached by the path end" within the A* acceptance
     // radius plus one cell of smoothing slack.
@@ -235,6 +275,10 @@ fn main() -> Result<()> {
     let mut active_route: Option<ActiveRoute> = None;
     let mut last_route_log = Instant::now() - Duration::from_secs(60);
     let link_block_after = Duration::from_secs_f64(config.roadmap.link_block_after_s);
+    // Reference corridor from the most recent global replan, re-installed
+    // into the local planner each cycle while the route stays active (the
+    // replan block runs at 4 Hz; between runs the tube is near-identical).
+    let mut last_corridor: Option<Corridor> = None;
 
     // Scenario state
     let mut scenario_waypoints: Vec<limo_proto::NavigationGoal> = Vec::new();
@@ -690,9 +734,13 @@ fn main() -> Result<()> {
         // robot's route projection; the leg-progress watchdog feeds 6a.
         let mut route_speed_cap = f64::INFINITY;
         let mut route_goal: Option<roadmap::RouteGoal> = None;
+        // Robot's arc position on the active route (valid only while
+        // route_goal is Some) — the lower end of the reference corridor.
+        let mut route_robot_s = 0.0;
         if let Some(ar) = active_route.as_mut() {
             let proj = roadmap::project_onto_route(&ar.route, robot_state.x, robot_state.y);
             route_speed_cap = ar.route.waypoints[proj.segment].speed;
+            route_robot_s = proj.s;
             let goal_s = roadmap::advance_goal_arc(
                 &ar.route,
                 proj.s,
@@ -781,90 +829,200 @@ fn main() -> Result<()> {
                 theta: robot_state.theta,
             });
 
+            // Reference corridor for the leg (active route only): the route
+            // polyline from the robot's projection to the leg goal (small
+            // margin both ends) becomes a soft-pull + hard-bound tube for
+            // Hybrid A* and the smoother — metric planning FOLLOWS the
+            // route, deviating only locally for obstacles. No route: None,
+            // and the search is byte-for-byte the unconstrained one.
+            let corridor = match (&active_route, &route_goal) {
+                (Some(ar), Some(g)) => Corridor::new(
+                    roadmap::sub_polyline(
+                        &ar.route,
+                        route_robot_s - CORRIDOR_END_MARGIN_M,
+                        g.s + CORRIDOR_END_MARGIN_M,
+                    ),
+                    config.roadmap.corridor_half_width,
+                    config.roadmap.corridor_cost_weight,
+                    config.roadmap.corridor_hard_factor,
+                )
+                .map(|mut c| {
+                    // Outside-start re-entry (see Corridor::allow_reentry_from):
+                    // a rerouted reference may start far from the robot; the
+                    // plan back INTO the tube must be possible.
+                    c.allow_reentry_from(robot_state.x, robot_state.y);
+                    c
+                }),
+                _ => None,
+            };
+            // The DWA fallback samples against the same tube (see
+            // DwaPlanner::set_corridor) so a pursuit deferral doesn't send
+            // the sampler chasing the carrot outside the route.
+            last_corridor = corridor.clone();
+
             let goal_changed = current_path_goal.is_none_or(|(gx, gy, gt)| {
                 goal_differs((gx, gy, gt), (goal.x, goal.y, goal.theta))
             });
             let end_reaches_goal = global_path.last().is_some_and(|end| {
                 ((end.x - goal.x).powi(2) + (end.y - goal.y).powi(2)).sqrt() <= goal_end_tolerance
             });
-            let current_ok = current_path_valid && !goal_changed && end_reaches_goal;
+            // Pose consistency (replay t=65.8s): hysteresis judged retained
+            // paths by collision validity, goal identity, and cost — never
+            // by whether the path still relates to where the robot IS. A
+            // retained path a full meter lateral of the robot made every
+            // executor arc back onto a stale reference (kinked, pose-blind
+            // trajectories). Beyond PATH_OFFSET_INVALIDATE_M the retention
+            // privilege is void — the fresh candidate, planned FROM the
+            // current pose, replaces it unconditionally.
+            let robot_near_path = global_path.iter().any(|w| {
+                (w.x - robot_state.x).powi(2) + (w.y - robot_state.y).powi(2)
+                    <= PATH_OFFSET_INVALIDATE_M * PATH_OFFSET_INVALIDATE_M
+            });
+            let current_ok =
+                current_path_valid && !goal_changed && end_reaches_goal && robot_near_path;
 
-            // One chamfer build per replan, shared by A*, the smoother, and
-            // both sides of the hysteresis cost comparison.
-            let clearance = global.build_clearance(&grid);
-            if let Some(raw) = global
-                .plan_with_escape(
-                    &start,
-                    &goal,
-                    &grid,
-                    clearance.as_ref(),
-                    escape_zone.as_ref(),
-                )
-                .0
-            {
-                let smooth_start = Instant::now();
-                let candidate = smoother::smooth_path(
-                    &raw,
-                    &grid,
-                    clearance.as_ref(),
-                    &config.global_planner,
-                    config.local_planner.dwa.max_curvature,
-                    escape_zone.as_ref(),
-                );
-                debug!(
-                    "smoother: {} raw -> {} waypoints in {:?}",
-                    raw.len(),
-                    candidate.len(),
-                    smooth_start.elapsed(),
-                );
-
-                let weight = config.global_planner.clearance_cost_weight;
-                let decay = config.global_planner.clearance_decay_m;
-                // Both sides scored with the same direction penalties, so a
-                // shuttling maneuver path is judged by the full cost A*
-                // charged for it and a clean pure-forward candidate can
-                // displace it on the same 15% margin as any other.
-                let penalties = CostPenalties::from_config(&config.global_planner);
-                let decision = path_replace_decision(
-                    current_ok,
-                    goal_changed,
-                    path_cost(&candidate, clearance.as_ref(), weight, decay, penalties),
-                    path_cost(&global_path, clearance.as_ref(), weight, decay, penalties),
-                    config.global_planner.path_improvement_threshold,
-                );
-
-                if let Some(reason) = decision {
-                    if last_replace_log.elapsed() >= Duration::from_secs(1) {
-                        info!(
-                            "Global path replaced ({}): {} waypoints",
-                            reason,
-                            candidate.len()
-                        );
-                        last_replace_log = Instant::now();
+            // Reference-direct following (roadmap.follow_route_directly):
+            // the route polyline IS the global path — resampled fresh every
+            // replan tick from the robot's projection to the leg goal. No
+            // A*, no smoother, no hysteresis: the reference is stable by
+            // construction, always starts at the robot's projection, and
+            // obstacle avoidance lives in the local planner's quintic
+            // lateral offsets. The whole class of "A* found no path" link
+            // blame disappears with it.
+            let route_direct = config.roadmap.follow_route_directly
+                && active_route.is_some()
+                && route_goal.is_some();
+            if route_direct {
+                if let (Some(ar), Some(g)) = (&active_route, &route_goal) {
+                    let path = resample_polyline(
+                        &roadmap::sub_polyline(&ar.route, route_robot_s, g.s),
+                        ROUTE_PATH_SPACING_M,
+                    );
+                    if path.len() >= 2 {
+                        global_path = path;
+                        current_path_goal = Some((goal.x, goal.y, goal.theta));
                     } else {
+                        // Degenerate leg (robot at the leg goal): the
+                        // endgame direct approach owns the remainder.
+                        global_path.clear();
+                    }
+                }
+                astar_fail_streak = 0;
+                last_global_plan = Instant::now();
+            } else {
+                // One chamfer build per replan, shared by A*, the smoother, and
+                // both sides of the hysteresis cost comparison.
+                let clearance = global.build_clearance(&grid);
+                if let Some(raw) = global
+                    .plan_with_corridor(
+                        &start,
+                        &goal,
+                        &grid,
+                        clearance.as_ref(),
+                        escape_zone.as_ref(),
+                        corridor.as_ref(),
+                    )
+                    .0
+                {
+                    let smooth_start = Instant::now();
+                    let candidate = smoother::smooth_path(
+                        &raw,
+                        &grid,
+                        clearance.as_ref(),
+                        &config.global_planner,
+                        config.local_planner.dwa.max_curvature,
+                        escape_zone.as_ref(),
+                        corridor.as_ref(),
+                    );
+                    debug!(
+                        "smoother: {} raw -> {} waypoints in {:?}",
+                        raw.len(),
+                        candidate.len(),
+                        smooth_start.elapsed(),
+                    );
+                    // Route-following observability: corridor mode + how far the
+                    // produced plan strays from the reference at worst.
+                    if let Some(c) = corridor.as_ref() {
+                        let max_off = candidate
+                            .iter()
+                            .map(|w| c.offset(w.x, w.y))
+                            .fold(0.0_f64, f64::max);
                         debug!(
-                            "Global path replaced ({}): {} waypoints",
-                            reason,
-                            candidate.len()
+                            "corridor active: leg max lateral offset {:.2}m (hard bound {:.2}m)",
+                            max_off,
+                            c.hard_bound(),
                         );
                     }
-                    global_path = candidate;
-                    current_path_goal = Some((goal.x, goal.y, goal.theta));
-                } else {
-                    debug!(
-                        "Global path retained: candidate not {}% better",
-                        config.global_planner.path_improvement_threshold * 100.0
+
+                    let weight = config.global_planner.clearance_cost_weight;
+                    let decay = config.global_planner.clearance_decay_m;
+                    // Both sides scored with the same direction penalties, so a
+                    // shuttling maneuver path is judged by the full cost A*
+                    // charged for it and a clean pure-forward candidate can
+                    // displace it on the same 15% margin as any other.
+                    let penalties = CostPenalties::from_config(&config.global_planner);
+                    let decision = path_replace_decision(
+                        current_ok,
+                        goal_changed,
+                        path_cost(&candidate, clearance.as_ref(), weight, decay, penalties),
+                        path_cost(&global_path, clearance.as_ref(), weight, decay, penalties),
+                        config.global_planner.path_improvement_threshold,
                     );
+
+                    if let Some(reason) = decision {
+                        if last_replace_log.elapsed() >= Duration::from_secs(1) {
+                            info!(
+                                "Global path replaced ({}): {} waypoints",
+                                reason,
+                                candidate.len()
+                            );
+                            last_replace_log = Instant::now();
+                        } else {
+                            debug!(
+                                "Global path replaced ({}): {} waypoints",
+                                reason,
+                                candidate.len()
+                            );
+                        }
+                        global_path = candidate;
+                        current_path_goal = Some((goal.x, goal.y, goal.theta));
+                    } else {
+                        debug!(
+                            "Global path retained: candidate not {}% better",
+                            config.global_planner.path_improvement_threshold * 100.0
+                        );
+                    }
+                } else {
+                    // No new path. Keep whatever we have: even an invalidated
+                    // path is safer to keep pointing along than an empty one (the
+                    // executors collision-check every command at 10Hz; an empty
+                    // path is a confident stop that would mask the blockage).
+                    // Inside the corridor tube this is a much stronger signal the
+                    // leg is genuinely obstructed — the blocked-link machinery
+                    // (6a) escalates to a reroute; the tube is never widened.
+                    debug!(
+                        "Global planner: no path found{}",
+                        if corridor.is_some() {
+                            " (corridor-constrained: leg likely obstructed)"
+                        } else {
+                            ""
+                        },
+                    );
+                    astar_failed_on_route = route_goal.is_some();
                 }
-            } else {
-                // No new path. Keep whatever we have: even an invalidated
-                // path is safer to keep pointing along than an empty one (the
-                // executors collision-check every command at 10Hz; an empty
-                // path is a confident stop that would mask the blockage).
-                debug!("Global planner: no path found");
-                astar_failed_on_route = route_goal.is_some();
+                // Blame persistence: a SINGLE failed replan blamed the leg's
+                // link instantly (replay t≈13s and t≈35s: transient failures
+                // during the entry maneuver flipped the route to the slalom,
+                // then flipped it back mid-corridor — wholesale plan reversals
+                // from momentary planner hiccups). Only a STREAK of failures is
+                // evidence of genuine obstruction.
+                if astar_failed_on_route {
+                    astar_fail_streak += 1;
+                } else {
+                    astar_fail_streak = 0;
+                }
+                last_global_plan = Instant::now();
             }
-            last_global_plan = Instant::now();
         }
 
         // --- 6a. Blocked-link detection on the active route ---
@@ -872,16 +1030,33 @@ fn main() -> Result<()> {
         // or the robot made no progress toward it for link_block_after_s.
         // The link is temporarily excluded from routing and the route is
         // recomputed next cycle (5b sees active_route == None).
-        let block = active_route.as_ref().and_then(|ar| {
-            let cause = if astar_failed_on_route {
-                Some("global planner found no path")
-            } else if ar.progress_at.elapsed() >= link_block_after {
-                Some("no leg progress")
-            } else {
-                None
-            };
-            cause.map(|c| (ar.goal_link, c))
-        });
+        //
+        // PAUSED during Recovery: a wedged robot cannot make leg progress,
+        // and blaming whatever link the leg goal happens to sit on produced
+        // live route flapping — mid-recovery the watchdog declared the (un-
+        // reached) next link blocked, swapped the wide lane route for the
+        // 0.6m slalom, wedged there, blamed that, and oscillated. Recovery
+        // time is not link time: the clock is refreshed while recovering so
+        // it restarts from zero on exit, and transient escape-mode A*
+        // failures are not treated as leg obstruction either.
+        let in_recovery = behavior_out.state == behavior::DrivingState::Recovery;
+        if in_recovery {
+            if let Some(ar) = active_route.as_mut() {
+                ar.progress_at = Instant::now();
+            }
+        }
+        let block = (!in_recovery)
+            .then(|| {
+                active_route.as_ref().and_then(|ar| {
+                    leg_block_cause(
+                        astar_fail_streak >= ASTAR_BLAME_MIN_FAILS,
+                        ar.progress_at.elapsed(),
+                        link_block_after,
+                    )
+                    .map(|c| (ar.goal_link, c))
+                })
+            })
+            .flatten();
         if let Some((link, cause)) = block {
             if let Some(rm) = roadmap.as_mut() {
                 warn!("Link {} blocked ({}), rerouting", rm.link_name(link), cause);
@@ -902,15 +1077,117 @@ fn main() -> Result<()> {
             .desired_speed
             .min(scenario_speed_limit)
             .min(route_speed_cap);
-        let (local_plan, scripted_fallback) = select_local_plan(
+        // DWA fallback follows the same route tube as the global planner;
+        // cleared the moment no route is active (mission tail, blocked-link
+        // reroute gap) so the sampler falls back to unconstrained.
+        local.set_corridor(if active_route.is_some() {
+            last_corridor.clone()
+        } else {
+            None
+        });
+        // Endgame direct approach (see `direct_approach_path`): an empty
+        // path near the goal becomes a one-waypoint DWA path instead of the
+        // deliberate stop that parked the robot 0.81m short of tolerance.
+        let direct_goal = if global_path.is_empty() && behavior_out.recovery_phase.is_none() {
+            direct_approach_path(
+                scenario_active,
+                &scenario_waypoints,
+                current_wp_index,
+                &robot_state,
+                GOAL_DIRECT_APPROACH_M,
+            )
+            .map(|wp| vec![wp])
+        } else {
+            None
+        };
+        let exec_path: &[PathWaypoint] = direct_goal.as_deref().unwrap_or(&global_path);
+        // Actuation-delay compensation: plan from the pose the robot will
+        // occupy when the command reaches the chassis (see
+        // `local_planner::project_state`), not the perception-aged one.
+        let exec_state =
+            local_planner::project_state(&robot_state, config.local_planner.actuation_delay_s);
+        let (local_plan, scripted_fallback, pursuit_attempt) = select_local_plan(
             &mut local,
             behavior_out.recovery_phase,
-            &robot_state,
-            &global_path,
+            &exec_state,
+            exec_path,
             &obstacles,
             desired_speed,
             &reverse_escape,
         );
+        // Stale-heading invalidation: path hysteresis keeps a collision-valid
+        // path even when a recovery rotation left its forward direction BEHIND
+        // the robot — heading was never a validity criterion, so the stale
+        // path survived every replan tick and pursuit deferred (TargetBehind)
+        // forever. TARGET_BEHIND_DROP_CYCLES consecutive deferrals (counted
+        // across ALL phases where pursuit is attempted; scripted cycles
+        // neither count nor reset) drop the path; the next 4Hz replan plans
+        // from the actual pose/heading (bidirectional A* + RS handles the
+        // turn properly). 5 cycles = 0.5s: a genuinely stale heading defers
+        // every cycle indefinitely so the drop still fires near-instantly,
+        // while the 1-2 cycle TargetBehind TRANSIENTS of a hard weave no
+        // longer kill a live path mid-drive (at 2 cycles the drops fired at
+        // 1.2 m/s and forced escape-mode replans that amplified the weave).
+        // Route-direct mode has NO retention to bust: the path regenerates
+        // identically from the robot's projection every replan tick, so a
+        // streak drop only starves the executors of a path for 250ms and
+        // then meets the same geometry again (live: drop-regenerate loop at
+        // 10Hz while recovery had nothing to work with). Reorientation onto
+        // the reference is the executors' job there, not the invalidators'.
+        let route_direct_active = config.roadmap.follow_route_directly && active_route.is_some();
+        match pursuit_attempt {
+            PursuitAttempt::Deferred(local_planner::PursuitDefer::TargetBehind) => {
+                blocked_streak = 0;
+                target_behind_streak += 1;
+                if target_behind_streak >= TARGET_BEHIND_DROP_CYCLES
+                    && !route_direct_active
+                    && !global_path.is_empty()
+                {
+                    warn!(
+                        "pursuit target behind for {} cycles — dropping stale path \
+                         ({} waypoints) to force a heading-consistent replan",
+                        target_behind_streak,
+                        global_path.len()
+                    );
+                    global_path.clear();
+                    target_behind_streak = 0;
+                }
+            }
+            // Clearance-stale path: hysteresis can retain a path that hugs a
+            // wall tip so closely every pursuit arc sweeps within millimeters
+            // of it (live: net 0.193 vs req 0.195 at the channel entry, robot
+            // a full meter away — no wedge allowance applies). A sustained
+            // Blocked streak means the RETAINED path, not the world, is the
+            // problem: drop it so the next replan routes through today's
+            // clearance field from the actual pose.
+            PursuitAttempt::Deferred(local_planner::PursuitDefer::Blocked(_)) => {
+                target_behind_streak = 0;
+                blocked_streak += 1;
+                // Short paths are exempt: dropping a sub-2m final approach
+                // cannot yield a materially different replan (the goal pinch
+                // IS the blockage) — live it churned drop/replan every 0.8s
+                // and reset pursuit each time. Recovery and the endgame
+                // direct approach own short-path blockages.
+                if blocked_streak >= BLOCKED_DROP_CYCLES
+                    && !route_direct_active
+                    && global_path.len() >= BLOCKED_DROP_MIN_WAYPOINTS
+                {
+                    warn!(
+                        "pursuit blocked for {} cycles — dropping wall-hugging path \
+                         ({} waypoints) to force a clearance-fresh replan",
+                        blocked_streak,
+                        global_path.len()
+                    );
+                    global_path.clear();
+                    blocked_streak = 0;
+                }
+            }
+            PursuitAttempt::Deferred(_) | PursuitAttempt::Succeeded => {
+                target_behind_streak = 0;
+                blocked_streak = 0;
+            }
+            PursuitAttempt::NotTried => {}
+        }
         if let Some(reason) = scripted_fallback {
             // Hierarchy fallback: scripted reverse engaged even though a
             // global path exists. Rate-limited, tagged for post-run counting.
@@ -1173,20 +1450,21 @@ fn select_local_plan(
     obstacles: &[Obstacle],
     desired_speed: f64,
     reverse_escape: &Result<VelocityCommand, RearBlocker>,
-) -> (LocalPlan, Option<PursuitDefer>) {
+) -> (LocalPlan, Option<PursuitDefer>, PursuitAttempt) {
     match recovery_phase {
         Some(RecoveryPhase::ForwardRetry) => {
             match local.compute_pursuit(robot_state, global_path, obstacles, desired_speed) {
-                Ok(plan) => (plan, None),
-                Err(_) => (
+                Ok(plan) => (plan, None, PursuitAttempt::Succeeded),
+                Err(reason) => (
                     local.compute_relaxed(robot_state, global_path, obstacles, desired_speed),
                     None,
+                    PursuitAttempt::Deferred(reason),
                 ),
             }
         }
         Some(RecoveryPhase::Reverse) => {
             match local.compute_pursuit(robot_state, global_path, obstacles, desired_speed) {
-                Ok(plan) => (plan, None),
+                Ok(plan) => (plan, None, PursuitAttempt::Succeeded),
                 Err(reason) => {
                     // Behavior only reports Reverse when rear_clear was true
                     // this cycle, so the escape is Ok; fall back to a
@@ -1197,7 +1475,11 @@ fn select_local_plan(
                         confidence: 0.9,
                     });
                     let fallback = (!global_path.is_empty()).then_some(reason);
-                    (local.scripted_plan(robot_state, cmd), fallback)
+                    (
+                        local.scripted_plan(robot_state, cmd),
+                        fallback,
+                        PursuitAttempt::Deferred(reason),
+                    )
                 }
             }
         }
@@ -1211,12 +1493,142 @@ fn select_local_plan(
                 },
             ),
             None,
+            PursuitAttempt::NotTried,
         ),
-        None => (
-            local.compute(robot_state, global_path, obstacles, desired_speed),
-            None,
-        ),
+        None => {
+            let (plan, defer) =
+                local.compute_with_defer(robot_state, global_path, obstacles, desired_speed);
+            let attempt = match defer {
+                Some(reason) => PursuitAttempt::Deferred(reason),
+                None if global_path.is_empty() => PursuitAttempt::NotTried,
+                None => PursuitAttempt::Succeeded,
+            };
+            (plan, None, attempt)
+        }
     }
+}
+
+/// Endgame direct-approach path (see `GOAL_DIRECT_APPROACH_M`): a
+/// single-waypoint path at the active mission goal, produced only when the
+/// global path is empty, no recovery is in progress, and the goal is within
+/// `max_dist` of the robot. None everywhere else — the empty-path confident
+/// stop remains the correct behavior for Idle and for far-away A* failures
+/// (chasing a distant goal unchecked is what the corridor work eliminated).
+fn direct_approach_path(
+    scenario_active: bool,
+    waypoints: &[limo_proto::NavigationGoal],
+    current_wp: usize,
+    robot: &RobotState,
+    max_dist: f64,
+) -> Option<PathWaypoint> {
+    let wp = waypoints.get(current_wp).filter(|_| scenario_active)?;
+    let pose = wp.goal_pose.as_ref()?;
+    let dist = ((pose.x - robot.x).powi(2) + (pose.y - robot.y).powi(2)).sqrt();
+    if dist > max_dist {
+        return None;
+    }
+    // Tolerance-edge targeting: the mission only requires ENTERING the
+    // tolerance disk, but aiming at the center forced a millimeter-scale
+    // squeeze past the goal's nearest obstacle (live: goal ringed by plaza
+    // clutter — recovery shuffled forward/backward against a pinch the
+    // tolerance never asked it to cross). Aim at the nearest point
+    // comfortably inside the disk instead.
+    let pull = ((wp.goal_tolerance as f64) - TOLERANCE_EDGE_MARGIN_M)
+        .max(0.0)
+        .min(dist);
+    let (tx, ty) = if dist > 1e-6 {
+        (
+            pose.x + (robot.x - pose.x) / dist * pull,
+            pose.y + (robot.y - pose.y) / dist * pull,
+        )
+    } else {
+        (pose.x, pose.y)
+    };
+    Some(PathWaypoint {
+        x: tx,
+        y: ty,
+        theta: pose.theta,
+        steering: 0.0,
+        dir: Default::default(),
+    })
+}
+
+/// Resample a route polyline into forward PathWaypoints at ~ROUTE_PATH_
+/// SPACING_M spacing, theta = segment tangent (last point inherits it).
+/// The reference-direct global path (roadmap.follow_route_directly).
+fn resample_polyline(poly: &[(f64, f64)], spacing: f64) -> Vec<PathWaypoint> {
+    if poly.len() < 2 {
+        return Vec::new();
+    }
+    let mut out: Vec<PathWaypoint> = Vec::new();
+    let mut carry = 0.0;
+    for w in poly.windows(2) {
+        let (ax, ay) = w[0];
+        let (bx, by) = w[1];
+        let (dx, dy) = (bx - ax, by - ay);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-9 {
+            continue;
+        }
+        let theta = dy.atan2(dx);
+        if out.is_empty() {
+            out.push(PathWaypoint {
+                x: ax,
+                y: ay,
+                theta,
+                steering: 0.0,
+                dir: Default::default(),
+            });
+        }
+        let mut s = spacing - carry;
+        while s < len {
+            out.push(PathWaypoint {
+                x: ax + dx / len * s,
+                y: ay + dy / len * s,
+                theta,
+                steering: 0.0,
+                dir: Default::default(),
+            });
+            s += spacing;
+        }
+        carry = len - (s - spacing);
+    }
+    let (lx, ly) = *poly.last().unwrap();
+    let end_far = out
+        .last()
+        .is_none_or(|e| ((e.x - lx).powi(2) + (e.y - ly).powi(2)).sqrt() > spacing * 0.25);
+    if end_far {
+        let theta = out.last().map_or(0.0, |e| e.theta);
+        out.push(PathWaypoint {
+            x: lx,
+            y: ly,
+            theta,
+            steering: 0.0,
+            dir: Default::default(),
+        });
+    }
+    out
+}
+
+/// Waypoint spacing (m) of the reference-direct global path.
+const ROUTE_PATH_SPACING_M: f64 = 0.25;
+
+/// How far INSIDE the goal tolerance disk the direct approach aims (m):
+/// the scenario checks distance-to-center < tolerance, so stopping this
+/// deep past the disk edge registers arrival with margin for pose noise.
+const TOLERANCE_EDGE_MARGIN_M: f64 = 0.10;
+
+/// Outcome of the pursuit attempt inside `select_local_plan`, for the
+/// stale-heading streak: scripted cycles (Hold, empty path) carry no
+/// evidence about the path's heading and must NOT reset the TargetBehind
+/// count — the live failure was exactly the interleaved Hold/scripted
+/// cycles zeroing the streak so "2 consecutive deferrals" never fired and
+/// a heading-stale path survived recovery indefinitely.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PursuitAttempt {
+    NotTried,
+    Succeeded,
+    Deferred(PursuitDefer),
 }
 
 /// Roadmap route currently followed toward a mission waypoint, with the
@@ -1236,6 +1648,25 @@ struct ActiveRoute {
     best_goal_dist: f64,
     /// Last time best_goal_dist improved (leg-progress watchdog).
     progress_at: Instant,
+}
+
+/// Why the current route leg's link is declared blocked this cycle, if at
+/// all. `astar_failed` is "Hybrid A* found no path to the leg goal this
+/// replan" — with the corridor constraint active that search ran inside the
+/// route tube, so failure is a strong obstruction signal; the caller reports
+/// the link blocked and reroutes (the tube is never widened).
+fn leg_block_cause(
+    astar_failed: bool,
+    progress_age: Duration,
+    block_after: Duration,
+) -> Option<&'static str> {
+    if astar_failed {
+        Some("global planner found no path")
+    } else if progress_age >= block_after {
+        Some("no leg progress")
+    } else {
+        None
+    }
 }
 
 /// Why the roadmap route must be recomputed this cycle, if at all.
@@ -1500,6 +1931,12 @@ fn extract_obstacles(world: &Option<limo_proto::WorldState>) -> (Vec<Obstacle>, 
                         vx,
                         vy,
                         radius: det.radius as f64,
+                        // Oriented-rectangle extent when the tracker sent
+                        // one (both half extents > 0); the circular radius
+                        // above stays the conservative fallback.
+                        half_x: det.half_extent_x as f64,
+                        half_y: det.half_extent_y as f64,
+                        heading: det.orientation as f64,
                     };
                     if det.track_id != 0 {
                         tracked.push(obs);
@@ -1574,6 +2011,7 @@ mod tests {
             vx,
             vy,
             radius: 0.15,
+            ..Default::default()
         }
     }
 
@@ -1955,6 +2393,24 @@ mod tests {
     }
 
     #[test]
+    fn leg_block_cause_feeds_reroute_machinery() {
+        // (c) glue: a corridor-constrained A* failure on the active route
+        // (astar_failed_on_route) must declare the leg's link blocked THIS
+        // cycle — the existing report_blocked + reroute path then fires
+        // exactly as for the progress watchdog.
+        let after = Duration::from_secs(10);
+        assert_eq!(
+            leg_block_cause(true, Duration::ZERO, after),
+            Some("global planner found no path")
+        );
+        assert_eq!(
+            leg_block_cause(false, Duration::from_secs(11), after),
+            Some("no leg progress")
+        );
+        assert_eq!(leg_block_cause(false, Duration::from_secs(9), after), None);
+    }
+
+    #[test]
     fn route_recompute_triggers() {
         // No route yet → compute.
         assert_eq!(route_recompute_reason(None, 2, 1.5), Some("new goal"));
@@ -1999,7 +2455,7 @@ mod tests {
         // organically on the feasible-cycle streak.
         let mut local = LocalPlanner::new(LocalPlannerConfig::default());
         let path = straight_path(31, 0.1); // 3m open straight
-        let (plan, fallback) = select_local_plan(
+        let (plan, fallback, _) = select_local_plan(
             &mut local,
             Some(RecoveryPhase::ForwardRetry),
             &stationary(),
@@ -2028,7 +2484,7 @@ mod tests {
         // no plan being ignored).
         let mut local = LocalPlanner::new(LocalPlannerConfig::default());
 
-        let (plan, fallback) = select_local_plan(
+        let (plan, fallback, _) = select_local_plan(
             &mut local,
             Some(RecoveryPhase::ForwardRetry),
             &stationary(),
@@ -2052,7 +2508,7 @@ mod tests {
         // Path-exhausted stub (remaining chord below pursuit's stable-arc
         // floor): pursuit defers, phase A still belongs to the relaxed DWA.
         let stub = straight_path(2, 0.1);
-        let (plan, fallback) = select_local_plan(
+        let (plan, fallback, _) = select_local_plan(
             &mut local,
             Some(RecoveryPhase::ForwardRetry),
             &stationary(),
@@ -2065,7 +2521,7 @@ mod tests {
         assert!(fallback.is_none());
 
         // Reverse phase without a path: scripted burst, no fallback reason.
-        let (plan, fallback) = select_local_plan(
+        let (plan, fallback, _) = select_local_plan(
             &mut local,
             Some(RecoveryPhase::Reverse),
             &stationary(),
@@ -2082,7 +2538,7 @@ mod tests {
         );
 
         // Hold: confident zero command, unchanged.
-        let (plan, fallback) = select_local_plan(
+        let (plan, fallback, _) = select_local_plan(
             &mut local,
             Some(RecoveryPhase::Hold),
             &stationary(),
@@ -2095,6 +2551,74 @@ mod tests {
         assert_eq!(plan.command.linear_x, 0.0);
         assert!(plan.command.confidence >= 0.99);
         assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn pursuit_attempt_reporting_feeds_the_stale_heading_streak() {
+        // The stale-heading streak counts Deferred from ANY phase where
+        // pursuit ran and holds (not resets) on scripted cycles. Pin the
+        // per-branch reporting: ForwardRetry against a wall = Deferred
+        // (previously reported as None, which reset the streak every
+        // interleaved cycle and kept heading-stale paths alive), Hold =
+        // NotTried, open-path phases = Succeeded.
+        let mut local = LocalPlanner::new(LocalPlannerConfig::default());
+        let path = straight_path(31, 0.1);
+        let mut wall = Vec::new();
+        let mut y = -1.0;
+        while y <= 1.0 {
+            wall.push(pt(0.25, y));
+            y += 0.05;
+        }
+        let (_, _, attempt) = select_local_plan(
+            &mut local,
+            Some(RecoveryPhase::ForwardRetry),
+            &stationary(),
+            &path,
+            &wall,
+            0.1,
+            &scripted_escape_cmd(),
+        );
+        assert!(
+            matches!(attempt, PursuitAttempt::Deferred(_)),
+            "blocked ForwardRetry must report the deferral, got {attempt:?}"
+        );
+
+        let (_, _, attempt) = select_local_plan(
+            &mut local,
+            Some(RecoveryPhase::Hold),
+            &stationary(),
+            &path,
+            &wall,
+            0.0,
+            &scripted_escape_cmd(),
+        );
+        assert_eq!(
+            attempt,
+            PursuitAttempt::NotTried,
+            "Hold carries no evidence"
+        );
+
+        let (_, _, attempt) = select_local_plan(
+            &mut local,
+            None,
+            &stationary(),
+            &path,
+            &[],
+            0.5,
+            &scripted_escape_cmd(),
+        );
+        assert_eq!(attempt, PursuitAttempt::Succeeded);
+
+        let (_, _, attempt) = select_local_plan(
+            &mut local,
+            None,
+            &stationary(),
+            &[],
+            &[],
+            0.5,
+            &scripted_escape_cmd(),
+        );
+        assert_eq!(attempt, PursuitAttempt::NotTried, "no path, no evidence");
     }
 
     #[test]
@@ -2114,7 +2638,7 @@ mod tests {
             wall.push(pt(0.25, y));
             y += 0.05;
         }
-        let (plan, fallback) = select_local_plan(
+        let (plan, fallback, _) = select_local_plan(
             &mut local,
             Some(RecoveryPhase::Reverse),
             &stationary(),
@@ -2125,14 +2649,14 @@ mod tests {
         );
         assert_eq!(plan.executor, Executor::Scripted);
         assert!(plan.command.linear_x < 0.0);
-        assert_eq!(
-            fallback,
-            Some(PursuitDefer::Blocked),
-            "fallback log must carry the pursuit deferral reason"
+        assert!(
+            matches!(fallback, Some(PursuitDefer::Blocked(Some(_)))),
+            "fallback log must carry the pursuit deferral reason with its \
+             binding-obstacle summary, got {fallback:?}"
         );
 
         // Same scene, no path: scripted engages silently (nothing ignored).
-        let (plan, fallback) = select_local_plan(
+        let (plan, fallback, _) = select_local_plan(
             &mut local,
             Some(RecoveryPhase::Reverse),
             &stationary(),
@@ -2163,6 +2687,7 @@ mod tests {
             vx: 0.0,
             vy: 0.0,
             radius: 0.15,
+            ..Default::default()
         }];
         let mut x = -0.2;
         while x <= 0.4 + 1e-9 {
@@ -2255,7 +2780,7 @@ mod tests {
                 planner_feasible: prev_feasible,
                 rear_clear: reverse_escape.is_ok(),
             });
-            let (plan, fallback) = select_local_plan(
+            let (plan, fallback, _) = select_local_plan(
                 &mut local,
                 out.recovery_phase,
                 &state,
@@ -2302,6 +2827,7 @@ mod tests {
             &gp_cfg,
             lp_cfg.dwa.max_curvature,
             Some(&zone),
+            None,
         );
         assert_eq!(
             path[1].dir,
@@ -2347,7 +2873,7 @@ mod tests {
                 Some(RecoveryPhase::Reverse),
                 "cycle {cycle}: reached the scripted-reverse phase despite an executable escape plan"
             );
-            let (plan, fallback) = select_local_plan(
+            let (plan, fallback, _) = select_local_plan(
                 &mut local,
                 out.recovery_phase,
                 &state,

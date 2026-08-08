@@ -597,6 +597,50 @@ pub fn goal_at_arc(route: &Route, s: f64) -> Option<RouteGoal> {
     None
 }
 
+/// Sub-polyline of the route between arc positions `s0` and `s1` (clamped to
+/// [0, length], swapped if inverted): the reference path of the current leg
+/// for the corridor-constrained metric planner. Returns the interpolated
+/// point at the lower arc, every interior route vertex, and the interpolated
+/// point at the upper arc. Degenerate requests (equal arcs, single-point
+/// routes) may return fewer than 2 points — the caller treats that as "no
+/// corridor".
+pub fn sub_polyline(route: &Route, s0: f64, s1: f64) -> Vec<(f64, f64)> {
+    let lo = s0.min(s1).clamp(0.0, route.length);
+    let hi = s0.max(s1).clamp(0.0, route.length);
+    let wps = &route.waypoints;
+    if wps.len() < 2 {
+        return wps.iter().map(|w| (w.x, w.y)).collect();
+    }
+    let mut out: Vec<(f64, f64)> = Vec::new();
+    let push_dedup = |p: (f64, f64), out: &mut Vec<(f64, f64)>| {
+        if out.last().is_none_or(|last| {
+            (last.0 - p.0).abs() > COINCIDENT_EPS || (last.1 - p.1).abs() > COINCIDENT_EPS
+        }) {
+            out.push(p);
+        }
+    };
+    let mut arc = 0.0;
+    for i in 0..wps.len() - 1 {
+        let (ax, ay) = (wps[i].x, wps[i].y);
+        let (bx, by) = (wps[i + 1].x, wps[i + 1].y);
+        let seg = ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
+        if seg < COINCIDENT_EPS {
+            continue;
+        }
+        let seg_end = arc + seg;
+        if seg_end >= lo - COINCIDENT_EPS && arc <= hi + COINCIDENT_EPS {
+            let t0 = ((lo - arc) / seg).clamp(0.0, 1.0);
+            let t1 = ((hi - arc) / seg).clamp(0.0, 1.0);
+            if out.is_empty() {
+                push_dedup((ax + t0 * (bx - ax), ay + t0 * (by - ay)), &mut out);
+            }
+            push_dedup((ax + t1 * (bx - ax), ay + t1 * (by - ay)), &mut out);
+        }
+        arc = seg_end;
+    }
+    out
+}
+
 /// Index of the first route vertex at or beyond arc position `s` — the
 /// vertex the current leg is heading toward (visualization highlight).
 pub fn vertex_at_or_after(route: &Route, s: f64) -> usize {
@@ -654,12 +698,54 @@ mod tests {
         Duration::from_secs(s)
     }
 
+    /// Fixed geometry fixture (the original gauntlet network): algorithm
+    /// tests pin THIS, so deliberate edits to the shipped map (e.g. via
+    /// tools/roadmap_editor.py) never break them. Shipped-file consistency
+    /// is covered separately by tests using shipped().
+    const GAUNTLET_FIXTURE: &str = r#"
+frame: planner
+nodes:
+  - {id: spawn,        x: 0.0,  y: 0.0}
+  - {id: lane_n_w,     x: 0.2,  y: 2.7}
+  - {id: lane_n_e,     x: 6.5,  y: 2.7}
+  - {id: chan_e,       x: 7.0,  y: 1.7}
+  - {id: slalom_exit,  x: 7.0,  y: 0.0}
+  - {id: gate_mid,     x: 7.45, y: 0.9}
+  - {id: gate_e,       x: 8.7,  y: 0.9}
+  - {id: plaza,        x: 13.2, y: 0.0}
+  - {id: goal,         x: 17.9, y: 0.5}
+  - {id: apex_0, x: 1.4, y: -0.35}
+  - {id: apex_1, x: 2.6, y: 0.35}
+  - {id: apex_2, x: 3.8, y: -0.35}
+  - {id: apex_3, x: 5.0, y: 0.35}
+  - {id: apex_4, x: 5.9, y: -0.35}
+links:
+  - {from: spawn,       to: lane_n_w,    width: 1.6, speed: 1.2}
+  - {from: lane_n_w,    to: lane_n_e,    width: 1.6, speed: 2.2}
+  - {from: lane_n_e,    to: chan_e,      width: 0.8, speed: 1.0}
+  - {from: chan_e,      to: slalom_exit, width: 0.8, speed: 1.0}
+  - {from: slalom_exit, to: gate_mid,    width: 1.1, speed: 1.0}
+  - {from: gate_mid,    to: gate_e,      width: 1.1, speed: 1.2}
+  - {from: gate_e,      to: plaza,       width: 2.5, speed: 2.2}
+  - {from: plaza,       to: goal,        width: 1.5, speed: 1.8}
+  - {from: spawn,   to: apex_0, width: 0.6, speed: 0.8}
+  - {from: apex_0,  to: apex_1, width: 0.6, speed: 0.8}
+  - {from: apex_1,  to: apex_2, width: 0.6, speed: 0.8}
+  - {from: apex_2,  to: apex_3, width: 0.6, speed: 0.8}
+  - {from: apex_3,  to: apex_4, width: 0.6, speed: 0.8}
+  - {from: apex_4,  to: slalom_exit, width: 0.6, speed: 0.8}
+"#;
+
     fn gauntlet() -> Roadmap {
+        Roadmap::from_yaml(GAUNTLET_FIXTURE, secs(20)).expect("fixture must load")
+    }
+
+    fn shipped() -> Roadmap {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../config/maps/obstacle_gauntlet_roadmap.yaml"
         );
-        Roadmap::load(path, secs(20)).expect("gauntlet roadmap must load")
+        Roadmap::load(path, secs(20)).expect("shipped gauntlet roadmap must load")
     }
 
     fn node_ids(route: &Route) -> Vec<String> {
@@ -675,7 +761,7 @@ mod tests {
 
     #[test]
     fn gauntlet_roadmap_loads() {
-        let rm = gauntlet();
+        let rm = shipped();
         assert_eq!(rm.node_count(), 14);
         assert_eq!(rm.link_count(), 14);
         assert!(rm.find_link("spawn", "lane_n_w").is_some());
@@ -872,14 +958,15 @@ links:
     #[test]
     fn current_scenario_waypoints_all_route_cleanly() {
         // Mission checkpoints from config/scenarios/obstacle_gauntlet.yaml
-        // must snap onto the network (< 0.3 m) and be routable in sequence.
-        let rm = gauntlet();
+        // must snap onto the SHIPPED network (< 0.3 m) and be routable in
+        // sequence — the live-files consistency check.
+        let rm = shipped();
         let mission = [
             (0.2, 2.4),  // lane_entry
             (6.4, 2.4),  // lane_east
-            (7.0, 0.0),  // slalom_exit
+            (7.0, 0.85), // slalom_exit
             (8.7, 0.9),  // gate_cleared
-            (13.2, 0.0), // plaza_crossed
+            (13.2, 0.5), // plaza_crossed
             (17.9, 0.5), // gauntlet_goal
         ];
         let mut from = (0.0, 0.0);
@@ -969,6 +1056,41 @@ links:
         let end = goal_at_arc(&route, route.length).unwrap();
         assert!(end.is_final);
         assert!((end.x - 7.0).abs() < 1e-6 && (end.y - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sub_polyline_extracts_the_leg_reference() {
+        // Synthetic L-route (independent of the shipped map): a(0,0) →
+        // b(4,0) → c(4,3), total length 7.
+        let yaml = r#"
+nodes:
+  - {id: a, x: 0.0, y: 0.0}
+  - {id: b, x: 4.0, y: 0.0}
+  - {id: c, x: 4.0, y: 3.0}
+links:
+  - {from: a, to: b, width: 1.0, speed: 1.0}
+  - {from: b, to: c, width: 1.0, speed: 1.0}
+"#;
+        let rm = Roadmap::from_yaml(yaml, secs(20)).unwrap();
+        let route = rm.route((0.0, 0.0), (4.0, 3.0), Instant::now()).unwrap();
+        assert!((route.length - 7.0).abs() < 1e-9);
+
+        // Mid-route slice spanning the corner: interpolated ends, corner
+        // vertex kept.
+        let pts = sub_polyline(&route, 1.0, 6.0);
+        assert_eq!(pts.len(), 3);
+        assert!((pts[0].0 - 1.0).abs() < 1e-9 && pts[0].1.abs() < 1e-9);
+        assert!((pts[1].0 - 4.0).abs() < 1e-9 && pts[1].1.abs() < 1e-9);
+        assert!((pts[2].0 - 4.0).abs() < 1e-9 && (pts[2].1 - 2.0).abs() < 1e-9);
+
+        // Out-of-range arcs clamp to the full polyline; swapped arcs are
+        // normalized.
+        let full = sub_polyline(&route, -5.0, 100.0);
+        assert_eq!(full.len(), 3);
+        assert_eq!(sub_polyline(&route, 6.0, 1.0), pts);
+
+        // Degenerate request collapses below 2 points ("no corridor").
+        assert!(sub_polyline(&route, 3.0, 3.0).len() < 2);
     }
 
     #[test]

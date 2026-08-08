@@ -245,10 +245,7 @@ impl SimpleMpc {
 
             let t = (i + 1) as f64 * self.config.dt;
             for obs in obstacles {
-                let (ox, oy) = obs.position_at(t);
-                let clearance = ((x - ox).powi(2) + (y - oy).powi(2)).sqrt()
-                    - obs.effective_radius_at(t)
-                    - self.config.robot_radius;
+                let clearance = obs.net_distance_at(x, y, t) - self.config.robot_radius;
                 if clearance < min_clearance {
                     min_clearance = clearance;
                 }
@@ -309,9 +306,7 @@ impl SimpleMpc {
             // Obstacle cost (velocity-propagated surface distance)
             let t = (i + 1) as f64 * self.config.dt;
             for obs in obstacles {
-                let (ox, oy) = obs.position_at(t);
-                let dist =
-                    ((x - ox).powi(2) + (y - oy).powi(2)).sqrt() - obs.effective_radius_at(t);
+                let dist = obs.net_distance_at(x, y, t);
                 if dist < self.config.robot_radius * 2.0 {
                     total_cost += self.config.weight_obstacle / (dist.max(0.0) + 0.01);
                 }
