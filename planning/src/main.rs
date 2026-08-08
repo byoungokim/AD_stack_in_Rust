@@ -105,7 +105,7 @@ fn main() -> Result<()> {
     let config_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "config/planning.yaml".into());
-    let config = load_config(&config_path).unwrap_or_else(|e| {
+    let mut config = load_config(&config_path).unwrap_or_else(|e| {
         warn!(
             "Failed to load config from '{}': {}, using defaults",
             config_path, e
@@ -148,6 +148,26 @@ fn main() -> Result<()> {
             config.local_planner.dwa.max_deceleration,
             config.arbitrator.safety.max_deceleration
         );
+    }
+
+    // LIMO_CORRIDOR_HALF_WIDTH overrides roadmap.corridor_half_width at
+    // launch (same pattern as LIMO_ROADMAP_FILE): per-world corridor
+    // tightness without editing the tuned planning.yaml. The sidewalk city
+    // uses 0.65 so the hard tube (x corridor_hard_factor 1.2 = 0.78m)
+    // matches the 1.5m sidewalk — the robot cannot legally leave sidewalks
+    // or crosswalks. Applied before validate() so bad values fail loud.
+    if let Ok(s) = std::env::var("LIMO_CORRIDOR_HALF_WIDTH") {
+        let w: f64 = s
+            .parse()
+            .map_err(|_| anyhow::anyhow!("LIMO_CORRIDOR_HALF_WIDTH is not a number: '{s}'"))?;
+        info!(
+            "Corridor half-width override: {} -> {} (LIMO_CORRIDOR_HALF_WIDTH)",
+            config.roadmap.corridor_half_width, w
+        );
+        config.roadmap.corridor_half_width = w;
+        if let Err(e) = config.roadmap.validate() {
+            anyhow::bail!("Invalid LIMO_CORRIDOR_HALF_WIDTH: {}", e);
+        }
     }
 
     // Prior roadmap layer: standing global route knowledge. A configured
