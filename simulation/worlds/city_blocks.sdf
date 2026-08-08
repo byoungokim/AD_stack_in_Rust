@@ -2274,183 +2274,207 @@
       </link>
     </model>
 
-    <!-- ============ PEDESTRIANS (kinematic actors) ============ -->
-    <actor name="ped_0_cross">
+    <!-- ============ PEDESTRIANS (reactive models, see ped_controller.py) ============ -->
+    <model name="ped_0_cross">
+      <pose>2.750 12.750 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.9 0.75 0.2 1</ambient><diffuse>0.9 0.75 0.2 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>2.750 12.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>10.34</time><pose>7.250 12.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>11.37</time><pose>7.250 12.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>21.71</time><pose>2.750 12.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>22.74</time><pose>2.750 12.750 0 0 0 0.000</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="ped_1_cross">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
+    <model name="ped_1_cross">
+      <pose>-12.750 -7.250 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.2 0.55 0.9 1</ambient><diffuse>0.2 0.55 0.9 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-12.750 -7.250 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>9.49</time><pose>-12.750 -2.750 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>11.19</time><pose>-12.750 -2.750 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>20.68</time><pose>-12.750 -7.250 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>22.37</time><pose>-12.750 -7.250 0 0 0 1.571</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="ped_2_cross">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
+    <model name="ped_2_cross">
+      <pose>12.750 2.750 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.85 0.3 0.3 1</ambient><diffuse>0.85 0.3 0.3 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>12.750 2.750 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>12.26</time><pose>12.750 7.250 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>12.90</time><pose>12.750 7.250 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>25.15</time><pose>12.750 2.750 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>25.79</time><pose>12.750 2.750 0 0 0 1.571</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="ped_3_cross">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
+    <model name="ped_3_cross">
+      <pose>-7.250 7.250 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.3 0.8 0.5 1</ambient><diffuse>0.3 0.8 0.5 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-7.250 7.250 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>10.78</time><pose>-2.750 7.250 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>12.32</time><pose>-2.750 7.250 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>23.10</time><pose>-7.250 7.250 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>24.65</time><pose>-7.250 7.250 0 0 0 0.000</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="ped_4_loop">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
+    <model name="ped_4_loop">
+      <pose>-7.550 -7.550 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.9 0.75 0.2 1</ambient><diffuse>0.9 0.75 0.2 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-12.450 -7.550 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>8.93</time><pose>-12.450 -11.950 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>9.94</time><pose>-12.450 -12.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>18.87</time><pose>-8.050 -12.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>19.88</time><pose>-7.550 -12.450 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>28.81</time><pose>-7.550 -8.050 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>29.82</time><pose>-7.550 -7.550 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>38.75</time><pose>-11.950 -7.550 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>39.77</time><pose>-12.450 -7.550 0 0 0 -1.571</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="ped_5_loop">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
+    <model name="ped_5_loop">
+      <pose>7.550 -2.450 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.2 0.55 0.9 1</ambient><diffuse>0.2 0.55 0.9 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>7.550 -2.450 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>8.53</time><pose>7.550 1.950 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>9.50</time><pose>7.550 2.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>18.03</time><pose>11.950 2.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>19.00</time><pose>12.450 2.450 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>27.53</time><pose>12.450 -1.950 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>28.50</time><pose>12.450 -2.450 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>37.03</time><pose>8.050 -2.450 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>38.00</time><pose>7.550 -2.450 0 0 0 1.571</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="ped_6_loop">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
+    <model name="ped_6_loop">
+      <pose>2.450 -7.550 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.85 0.3 0.3 1</ambient><diffuse>0.85 0.3 0.3 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-7.550 -2.450 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>7.54</time><pose>-11.950 -2.450 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>8.40</time><pose>-12.450 -2.450 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>15.94</time><pose>-12.450 1.950 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>16.80</time><pose>-12.450 2.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>24.35</time><pose>-8.050 2.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>25.20</time><pose>-7.550 2.450 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>32.75</time><pose>-7.550 -1.950 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>33.60</time><pose>-7.550 -2.450 0 0 0 3.142</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="ped_7_loop">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
+    <model name="ped_7_loop">
+      <pose>-7.550 -2.450 0 0 0 0</pose>
       <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
+        </collision>
         <visual name="visual">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>
           <material><ambient>0.3 0.8 0.5 1</ambient><diffuse>0.3 0.8 0.5 1</diffuse></material>
         </visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-7.550 -2.450 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>9.28</time><pose>-11.950 -2.450 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>10.33</time><pose>-12.450 -2.450 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>19.61</time><pose>-12.450 1.950 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>20.66</time><pose>-12.450 2.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>29.94</time><pose>-8.050 2.450 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>30.99</time><pose>-7.550 2.450 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>40.27</time><pose>-7.550 -1.950 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>41.33</time><pose>-7.550 -2.450 0 0 0 3.142</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>10</update_frequency>
+      </plugin>
+    </model>
 
     <!-- ============ VEHICLES (kinematic actors) ============ -->
     <actor name="vehicle_0_block">
@@ -2470,15 +2494,15 @@
         <loop>true</loop>
         <auto_start>true</auto_start>
         <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>5.750 5.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>20.28</time><pose>-4.850 5.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>22.00</time><pose>-5.750 5.750 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>42.27</time><pose>-5.750 -4.850 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>43.99</time><pose>-5.750 -5.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>64.27</time><pose>4.850 -5.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>65.99</time><pose>5.750 -5.750 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>86.27</time><pose>5.750 4.850 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>87.99</time><pose>5.750 5.750 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>0.00</time><pose>-5.750 -5.750 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>23.05</time><pose>4.850 -5.750 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>25.01</time><pose>5.750 -5.750 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>48.06</time><pose>5.750 4.850 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>50.01</time><pose>5.750 5.750 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>73.06</time><pose>-4.850 5.750 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>75.02</time><pose>-5.750 5.750 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>98.07</time><pose>-5.750 -4.850 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>100.02</time><pose>-5.750 -5.750 0 0 0 0.000</pose></waypoint>
         </trajectory>
       </script>
     </actor>
@@ -2499,15 +2523,15 @@
         <loop>true</loop>
         <auto_start>true</auto_start>
         <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>15.750 -4.250 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>24.48</time><pose>5.150 -4.250 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>26.56</time><pose>4.250 -4.250 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>51.03</time><pose>4.250 -14.850 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>53.11</time><pose>4.250 -15.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>77.59</time><pose>14.850 -15.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>79.67</time><pose>15.750 -15.750 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>104.14</time><pose>15.750 -5.150 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>106.22</time><pose>15.750 -4.250 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>0.00</time><pose>-15.750 4.250 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>20.63</time><pose>-5.150 4.250 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>22.38</time><pose>-4.250 4.250 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>43.01</time><pose>-4.250 14.850 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>44.76</time><pose>-4.250 15.750 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>65.39</time><pose>-14.850 15.750 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>67.14</time><pose>-15.750 15.750 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>87.77</time><pose>-15.750 5.150 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>89.52</time><pose>-15.750 4.250 0 0 0 0.000</pose></waypoint>
         </trajectory>
       </script>
     </actor>
@@ -2528,15 +2552,15 @@
         <loop>true</loop>
         <auto_start>true</auto_start>
         <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-15.750 -15.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>20.12</time><pose>-5.150 -15.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>21.83</time><pose>-4.250 -15.750 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>41.95</time><pose>-4.250 -5.150 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>43.66</time><pose>-4.250 -4.250 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>63.78</time><pose>-14.850 -4.250 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>65.48</time><pose>-15.750 -4.250 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>85.60</time><pose>-15.750 -14.850 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>87.31</time><pose>-15.750 -15.750 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>0.00</time><pose>5.750 15.750 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>26.13</time><pose>-4.850 15.750 0 0 0 3.142</pose></waypoint>
+        <waypoint><time>28.35</time><pose>-5.750 15.750 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>54.48</time><pose>-5.750 5.150 0 0 0 -1.571</pose></waypoint>
+        <waypoint><time>56.69</time><pose>-5.750 4.250 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>82.82</time><pose>4.850 4.250 0 0 0 0.000</pose></waypoint>
+        <waypoint><time>85.04</time><pose>5.750 4.250 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>111.17</time><pose>5.750 14.850 0 0 0 1.571</pose></waypoint>
+        <waypoint><time>113.39</time><pose>5.750 15.750 0 0 0 3.142</pose></waypoint>
         </trajectory>
       </script>
     </actor>

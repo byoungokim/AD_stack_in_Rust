@@ -43,6 +43,8 @@ cleanup() {
     done
     pkill -f "gz sim" 2>/dev/null
     pkill -f gz_zmq_bridge 2>/dev/null
+    pkill -f ped_controller 2>/dev/null
+    pkill -f accident_monitor 2>/dev/null
     pkill -f limo_ 2>/dev/null
     wait 2>/dev/null
     log "Done."
@@ -57,6 +59,8 @@ if pgrep -f "gz sim" >/dev/null 2>&1 || pgrep -f "limo_sensperc|limo_planning|li
     log "Cleaning up leftovers from a previous run..."
     pkill -f "gz sim" 2>/dev/null || true
     pkill -f gz_zmq_bridge 2>/dev/null || true
+    pkill -f ped_controller 2>/dev/null || true
+    pkill -f accident_monitor 2>/dev/null || true
     pkill -f "limo_sensperc|limo_planning|limo_control|limo_scenario|limo_sim_bridge" 2>/dev/null || true
     sleep 2
     pkill -9 -f "gz sim" 2>/dev/null || true
@@ -104,6 +108,23 @@ log "Starting Gazebo↔ZMQ bridge (native gz.transport13)..."
 python3 "$PROJECT_DIR/simulation/bridge/gz_zmq_bridge.py" &
 PIDS+=($!)
 sleep 1
+
+# === 3b. Reactive pedestrian controller (city worlds) ===
+# gen_city_world.py emits <world>_peds.json; when present, ped_* models in
+# the world are driven (and made to yield to the robot) by the controller.
+PEDS_FILE="${WORLD%.sdf}_peds.json"
+if [[ -f "$PEDS_FILE" ]]; then
+    log "Starting reactive pedestrian controller ($PEDS_FILE)..."
+    python3 "$PROJECT_DIR/simulation/bridge/ped_controller.py" "$PEDS_FILE" &
+    PIDS+=($!)
+fi
+
+# === 3c. Accident monitor ===
+# Counts collisions and logs the reason for each (chassis contact sensor +
+# perceptual vehicle-overlap detection) to accidents.log.
+log "Starting accident monitor (accidents.log)..."
+python3 "$PROJECT_DIR/simulation/bridge/accident_monitor.py" &
+PIDS+=($!)
 
 # === 4. AD Stack ===
 log "Starting ${CYAN}SensPerc${NC} (--sim)..."

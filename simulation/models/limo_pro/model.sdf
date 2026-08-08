@@ -31,6 +31,21 @@
         </geometry>
       </collision>
 
+      <!-- Ground-truth accident detection: fires on any physical contact
+           with the chassis (pedestrian models, buildings, walls, parked
+           obstacles). Consumed by simulation/bridge/accident_monitor.py.
+           Requires the world to load gz-sim-contact-system (all generated
+           and shipped worlds do). Vehicle actors have no collision body, so
+           car overlaps are detected perceptually by the monitor instead. -->
+      <sensor name="chassis_contact" type="contact">
+        <always_on>true</always_on>
+        <update_rate>20</update_rate>
+        <topic>limo/contacts</topic>
+        <contact>
+          <collision>chassis_collision</collision>
+        </contact>
+      </sensor>
+
       <!-- ============ CAMERA SENSOR ============ -->
       <sensor name="camera" type="camera">
         <pose>0.16 0 0.12 0 0 0</pose>
