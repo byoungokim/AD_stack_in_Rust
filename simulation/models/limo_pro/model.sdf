@@ -229,6 +229,13 @@
       <right_steering_joint>front_right_steering_joint</right_steering_joint>
       <kingpin_width>0.192</kingpin_width>
       <steering_limit>0.48</steering_limit>
+      <!-- Steering-joint P gain: the plugin default (1.0) gave the plant a
+           measured first-order steering response of 0.53x gain at 440ms lag
+           (tools/measure_tracking.py on demo27) — every tracking law weaved
+           around that sluggishness. 8.0 makes the steering joints track the
+           commanded angle within ~1-2 control cycles, matching the real
+           Limo Pro servo's much faster response. -->
+      <steer_p_gain>8.0</steer_p_gain>
       <wheel_base>0.2</wheel_base>
       <wheel_separation>0.192</wheel_separation>
       <wheel_radius>0.045</wheel_radius>
