@@ -16,9 +16,13 @@
         <geometry>
           <box><size>0.32 0.20 0.10</size></box>
         </geometry>
+        <!-- High-visibility magenta: the one hue no building, actor, road,
+             or wall in the generated worlds uses, with a mild emissive so
+             the robot stays findable in shadow and on the bird's-eye view. -->
         <material>
-          <ambient>0.2 0.2 0.2 1</ambient>
-          <diffuse>0.3 0.3 0.3 1</diffuse>
+          <ambient>1.0 0.0 0.85 1</ambient>
+          <diffuse>1.0 0.05 0.85 1</diffuse>
+          <emissive>0.35 0.0 0.3 1</emissive>
         </material>
       </visual>
       <collision name="chassis_collision">
