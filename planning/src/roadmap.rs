@@ -234,6 +234,20 @@ impl Roadmap {
         })
     }
 
+    /// Axis-aligned bounding box over all nodes: (min_x, min_y, max_x, max_y).
+    /// None only for an empty network (load() rejects those).
+    pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        let first = self.nodes.first()?;
+        let mut b = (first.x, first.y, first.x, first.y);
+        for n in &self.nodes {
+            b.0 = b.0.min(n.x);
+            b.1 = b.1.min(n.y);
+            b.2 = b.2.max(n.x);
+            b.3 = b.3.max(n.y);
+        }
+        Some(b)
+    }
+
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }

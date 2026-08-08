@@ -152,22 +152,26 @@ fn main() -> Result<()> {
 
     // Prior roadmap layer: standing global route knowledge. A configured
     // roadmap that fails to load is a startup error (fail loud), never a
-    // silent fallback to direct goals.
+    // silent fallback to direct goals. LIMO_ROADMAP_FILE overrides the
+    // configured path so per-world roadmaps (gauntlet vs city) can be
+    // selected at launch without editing the tuned planning.yaml.
+    let roadmap_file =
+        std::env::var("LIMO_ROADMAP_FILE").unwrap_or_else(|_| config.roadmap.file.clone());
     let mut roadmap: Option<roadmap::Roadmap> = if config.roadmap.enabled {
         match roadmap::Roadmap::load(
-            &config.roadmap.file,
+            &roadmap_file,
             Duration::from_secs_f64(config.roadmap.blocked_link_timeout_s),
         ) {
             Ok(rm) => {
                 info!(
                     "Roadmap loaded: {} ({} nodes, {} links)",
-                    config.roadmap.file,
+                    roadmap_file,
                     rm.node_count(),
                     rm.link_count(),
                 );
                 Some(rm)
             }
-            Err(e) => anyhow::bail!("Invalid roadmap '{}': {}", config.roadmap.file, e),
+            Err(e) => anyhow::bail!("Invalid roadmap '{}': {}", roadmap_file, e),
         }
     } else {
         None
@@ -265,6 +269,12 @@ fn main() -> Result<()> {
     let mut blocked_streak: u32 = 0;
     let mut astar_fail_streak: u32 = 0;
     let mut last_scripted_fallback_log = Instant::now() - Duration::from_secs(60);
+    // Rate limiter for the blocked-link WARN: a persistently failing leg
+    // re-declares the block every 10Hz cycle, which flooded run logs with
+    // identical "blocked, rerouting" lines. Warn at most 1Hz; repeats in
+    // between are counted and reported with the next emitted line.
+    let mut last_block_warn = Instant::now() - Duration::from_secs(60);
+    let mut block_warns_suppressed: u32 = 0;
     // A goal counts as "reached by the path end" within the A* acceptance
     // radius plus one cell of smoothing slack.
     let goal_end_tolerance = config.global_planner.xy_resolution * 2.0 + 0.1;
@@ -296,8 +306,37 @@ fn main() -> Result<()> {
     let mut cycle: u64 = 0;
 
     // Default empty grid (will be updated from WorldState)
-    // 400x400 at 0.1m = 40m×40m, covers from -20 to +20
-    let mut grid = OccupancyGrid::new(400, 400, 0.1, -20.0, -20.0);
+    // 400x400 at 0.1m = 40m×40m, covers from -20 to +20.
+    //
+    // Out-of-bounds counts as BLOCKED in the collision check, so a roadmap
+    // reaching past the box would make its far links permanently unplannable
+    // (the city patrol wedged at x=20.0 — the grid's east wall — with an
+    // empty street ahead, blocking link after link forever). Expand the
+    // bounds to the union of the default box and the roadmap's node bbox +
+    // margin: strictly more plannable space, identical behavior for courses
+    // that already fit (gauntlet: x<=17.9).
+    const GRID_RES_M: f64 = 0.1;
+    const ROADMAP_GRID_MARGIN_M: f64 = 8.0;
+    let (mut gmin_x, mut gmin_y, mut gmax_x, mut gmax_y) = (-20.0f64, -20.0f64, 20.0f64, 20.0f64);
+    if let Some((bx0, by0, bx1, by1)) = roadmap.as_ref().and_then(|rm| rm.bounds()) {
+        gmin_x = gmin_x.min(bx0 - ROADMAP_GRID_MARGIN_M);
+        gmin_y = gmin_y.min(by0 - ROADMAP_GRID_MARGIN_M);
+        gmax_x = gmax_x.max(bx1 + ROADMAP_GRID_MARGIN_M);
+        gmax_y = gmax_y.max(by1 + ROADMAP_GRID_MARGIN_M);
+    }
+    let grid_w = ((gmax_x - gmin_x) / GRID_RES_M).ceil() as usize;
+    let grid_h = ((gmax_y - gmin_y) / GRID_RES_M).ceil() as usize;
+    info!(
+        "Planning grid: {}x{} cells at {}m ({:.0}m x {:.0}m, origin ({:.1}, {:.1}))",
+        grid_w,
+        grid_h,
+        GRID_RES_M,
+        gmax_x - gmin_x,
+        gmax_y - gmin_y,
+        gmin_x,
+        gmin_y
+    );
+    let mut grid = OccupancyGrid::new(grid_w, grid_h, GRID_RES_M, gmin_x, gmin_y);
 
     // Short-term obstacle persistence: plan against the union of the last few
     // perception cycles so a real obstacle can't vanish between replans when
@@ -1059,7 +1098,22 @@ fn main() -> Result<()> {
             .flatten();
         if let Some((link, cause)) = block {
             if let Some(rm) = roadmap.as_mut() {
-                warn!("Link {} blocked ({}), rerouting", rm.link_name(link), cause);
+                if last_block_warn.elapsed() >= Duration::from_secs(1) {
+                    if block_warns_suppressed > 0 {
+                        warn!(
+                            "Link {} blocked ({}), rerouting ({} repeats suppressed)",
+                            rm.link_name(link),
+                            cause,
+                            block_warns_suppressed
+                        );
+                    } else {
+                        warn!("Link {} blocked ({}), rerouting", rm.link_name(link), cause);
+                    }
+                    last_block_warn = Instant::now();
+                    block_warns_suppressed = 0;
+                } else {
+                    block_warns_suppressed += 1;
+                }
                 rm.report_blocked(link, Instant::now());
             }
             active_route = None;
