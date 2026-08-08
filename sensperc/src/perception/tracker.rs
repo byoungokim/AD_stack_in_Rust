@@ -32,6 +32,14 @@ pub struct Cluster {
     pub aspect: f64,
     /// Full extent of the points along the PCA major axis (meters).
     pub major_len: f64,
+    /// Oriented-box half extent along the major axis (m), floored at the
+    /// lidar-noise scale. Zero for synthetic clusters (circle fallback).
+    pub half_major: f64,
+    /// Oriented-box half extent along the minor axis (m).
+    pub half_minor: f64,
+    /// Major-axis heading (radians, world frame), normalized to
+    /// [-PI/2, PI/2) — a box axis is direction-ambiguous.
+    pub orientation: f64,
     /// Indices into the input point slice.
     pub point_indices: Vec<usize>,
 }
@@ -82,6 +90,25 @@ impl Cluster {
             p_max = p_max.max(p);
         }
         let major_len = p_max - p_min;
+        // Minor-axis extent for the oriented-box representation: project on
+        // the perpendicular. The floor covers one-face visibility (a box
+        // seen edge-on has near-zero observed depth) and sensor noise.
+        const HALF_EXTENT_FLOOR: f64 = 0.05;
+        let (mx, my) = (-ey, ex);
+        let (mut q_min, mut q_max) = (f64::INFINITY, f64::NEG_INFINITY);
+        for &i in &point_indices {
+            let q = (pts[i].0 - cx) * mx + (pts[i].1 - cy) * my;
+            q_min = q_min.min(q);
+            q_max = q_max.max(q);
+        }
+        let half_major = (0.5 * major_len).max(HALF_EXTENT_FLOOR);
+        let half_minor = (0.5 * (q_max - q_min)).max(HALF_EXTENT_FLOOR);
+        let mut orientation = ey.atan2(ex);
+        if orientation >= std::f64::consts::FRAC_PI_2 {
+            orientation -= std::f64::consts::PI;
+        } else if orientation < -std::f64::consts::FRAC_PI_2 {
+            orientation += std::f64::consts::PI;
+        }
         // 1e-10 m^2 == 1e-5 m std: far below sensor noise, so only truly
         // degenerate (collinear) clusters map to infinity.
         let aspect = if l_min < 1e-10 {
@@ -96,6 +123,9 @@ impl Cluster {
             radius,
             aspect,
             major_len,
+            half_major,
+            half_minor,
+            orientation,
             point_indices,
         }
     }
@@ -299,6 +329,10 @@ pub struct TrackedObstacle {
     pub vx: f64,
     pub vy: f64,
     pub radius: f64,
+    /// Oriented-box half extents (m) and heading; zero extents = circle.
+    pub half_major: f64,
+    pub half_minor: f64,
+    pub orientation: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -309,6 +343,9 @@ struct Track {
     vx: f64,
     vy: f64,
     radius: f64,
+    half_major: f64,
+    half_minor: f64,
+    orientation: f64,
     hits: u32,
     misses: u32,
 }
@@ -365,6 +402,16 @@ impl ClusterTracker {
                 track.x = c.cx;
                 track.y = c.cy;
                 track.radius = 0.5 * (track.radius + c.radius);
+                // Box smoothing: extents like the radius; the orientation
+                // via the doubled-angle circular mean (a box axis is
+                // direction-ambiguous, so blend 2θ, halve back).
+                track.half_major = 0.5 * (track.half_major + c.half_major);
+                track.half_minor = 0.5 * (track.half_minor + c.half_minor);
+                let (s2, c2) = (
+                    0.5 * ((2.0 * track.orientation).sin() + (2.0 * c.orientation).sin()),
+                    0.5 * ((2.0 * track.orientation).cos() + (2.0 * c.orientation).cos()),
+                );
+                track.orientation = 0.5 * s2.atan2(c2);
                 track.hits += 1;
                 track.misses = 0;
             } else {
@@ -385,6 +432,9 @@ impl ClusterTracker {
                     vx: 0.0,
                     vy: 0.0,
                     radius: c.radius,
+                    half_major: c.half_major,
+                    half_minor: c.half_minor,
+                    orientation: c.orientation,
                     hits: 1,
                     misses: 0,
                 });
@@ -408,6 +458,9 @@ impl ClusterTracker {
                     vx: if publish_vel { t.vx } else { 0.0 },
                     vy: if publish_vel { t.vy } else { 0.0 },
                     radius: t.radius,
+                    half_major: t.half_major,
+                    half_minor: t.half_minor,
+                    orientation: t.orientation,
                 }
             })
             .collect()
@@ -467,6 +520,9 @@ mod tests {
             radius,
             aspect: 1.0,
             major_len: radius,
+            half_major: 0.0,
+            half_minor: 0.0,
+            orientation: 0.0,
             point_indices: vec![],
         }
     }

@@ -25,6 +25,14 @@ message Detection {
   Twist2D velocity_world = 6;    // estimated velocity in world frame (unset/zero = static or unknown)
   float radius = 7;              // object extent radius in meters (0 = point sample)
   uint32 track_id = 8;           // stable tracker id (0 = untracked point sample)
+  // Oriented-rectangle extent (both half-extents > 0 activates it; the
+  // circular `radius` above remains the conservative fallback so old
+  // consumers stay correct). Cures the circular over-approximation that
+  // closed narrow passages between box obstacles: a cube's circumscribed
+  // circle overstates its half-width by up to 41%.
+  float half_extent_x = 9;       // meters, along the box's own x (heading) axis
+  float half_extent_y = 10;      // meters, along the box's own y axis
+  float orientation = 11;        // radians, box heading in world frame
 }
 
 message DetectionArray {
