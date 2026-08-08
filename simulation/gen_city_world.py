@@ -1,24 +1,34 @@
 #!/usr/bin/env python3
 """City world generator: grid-of-blocks Gazebo city for the Limo Pro.
 
+The robot is a SIDEWALK robot: it drives the sidewalk ring around each
+block and crosses streets on zebra crosswalks, like the pedestrians.
+Vehicles (car-sized, ~3.5x the robot's length) own the roads.
+
 Emits four mutually consistent artifacts from one parameter set:
 
-  simulation/worlds/city_blocks.sdf         world: roads, buildings, walls,
+  simulation/worlds/city_blocks.sdf         world: roads, sidewalks,
+                                            crosswalks, buildings, walls,
                                             pedestrian + vehicle actors
   simulation/models/city_textures/          procedural PBR albedo maps
-  config/maps/city_blocks_roadmap.yaml      street-grid node-link roadmap
+  config/maps/city_blocks_roadmap.yaml      SIDEWALK + CROSSWALK roadmap
                                             (planner frame = world - spawn)
-  config/scenarios/city_patrol.yaml         looping patrol over the outer ring
+  config/scenarios/city_patrol.yaml         looping patrol around the city
+                                            perimeter sidewalks
 
-Layout: (blocks x blocks) city blocks separated by streets. Street
-centerlines form the roadmap graph; the robot spawns at the west
-intersection of row `blocks//2`, facing east, which anchors the planner
-frame. Everything is limo-scale (~1/10 of a real city).
+Layout: (blocks x blocks) city blocks separated by streets. Each block
+carries a sidewalk ring (width --sidewalk) between the buildings and the
+street; adjacent blocks connect via zebra crosswalks near every interior
+intersection. Roadmap nodes are the 4 sidewalk-ring corners of every
+block; links are sidewalk edges + crosswalks. The robot spawns at the
+south-west corner node of block (0,0), facing east, which anchors the
+planner frame. Everything is limo-scale (~1/10 of a real city).
 
 Actors are kinematic (no collision geometry) but visible to the gpu_lidar,
-so the stack must avoid them perceptually — same contract as the existing
-town_actors.sdf pedestrians. Vehicles keep right-hand traffic: each loops
-its circuit counter-clockwise with a right-lane offset.
+so the stack must avoid them perceptually. Vehicles keep right-hand
+traffic: each loops its circuit counter-clockwise with a right-lane
+offset, conflicting with the robot only at crosswalks — the interesting
+encounter this world is built around.
 
 Usage:
   python3 simulation/gen_city_world.py            # defaults (3x3, seed 7)
@@ -89,7 +99,7 @@ def _facade_texture(rng, base, size=256, cols=6, rows=8):
 
 
 def _noise_texture(rng, base, spread, size=256):
-    """Flat noisy surface (asphalt, concrete)."""
+    """Flat noisy surface (asphalt, concrete, paving)."""
     rows_px = []
     for _ in range(size):
         row = bytearray()
@@ -124,6 +134,7 @@ def write_textures(rng, tex_dir):
         (tex_dir / f"facade_{i}.png").write_bytes(_facade_texture(rng, base))
     (tex_dir / "asphalt.png").write_bytes(_noise_texture(rng, (52, 52, 56), 6))
     (tex_dir / "concrete.png").write_bytes(_noise_texture(rng, (120, 120, 118), 8))
+    (tex_dir / "paving.png").write_bytes(_noise_texture(rng, (148, 144, 136), 10))
 
 
 # ---------------------------------------------------------------------------
@@ -203,19 +214,20 @@ def pedestrian_visual(color):
 
 
 def vehicle_visuals(color):
+    """Car-sized vehicle (~3.5x the Limo's length at this scale)."""
     r, g, b = color
     body = (
         '        <visual name="body">\n'
-        "          <pose>0 0 0.12 0 0 0</pose>\n"
-        "          <geometry><box><size>0.45 0.25 0.16</size></box></geometry>\n"
+        "          <pose>0 0 0.16 0 0 0</pose>\n"
+        "          <geometry><box><size>1.10 0.55 0.32</size></box></geometry>\n"
         f"          <material><ambient>{r} {g} {b} 1</ambient>"
         f"<diffuse>{r} {g} {b} 1</diffuse></material>\n"
         "        </visual>\n"
     )
     cabin = (
         '        <visual name="cabin">\n'
-        "          <pose>-0.04 0 0.26 0 0 0</pose>\n"
-        "          <geometry><box><size>0.22 0.22 0.12</size></box></geometry>\n"
+        "          <pose>-0.08 0 0.44 0 0 0</pose>\n"
+        "          <geometry><box><size>0.55 0.48 0.24</size></box></geometry>\n"
         "          <material><ambient>0.15 0.18 0.22 1</ambient>"
         "<diffuse>0.15 0.18 0.22 1</diffuse></material>\n"
         "        </visual>\n"
@@ -228,18 +240,19 @@ def vehicle_visuals(color):
 # ---------------------------------------------------------------------------
 
 
-def loop_waypoints(corners, speed, phase=0.0):
+def loop_waypoints(corners, speed, phase=0.0, corner_cut=0.5):
     """Timed actor waypoints around a closed polygon.
 
     Each corner contributes an arrival point (incoming heading) shortly
     before it and a departure point (outgoing heading) at it, so the turn
     happens tightly at the corner instead of smearing along the edge.
-    `phase` in [0,1) rotates the schedule so identical circuits desynchronize.
+    `phase` in [0,1) rotates the START POSE around the polygon so identical
+    circuits desynchronize spatially, not just in schedule. `corner_cut`
+    grows with vehicle length so long bodies swing wider into turns.
     """
     n = len(corners)
-    pts = []  # (x, y, yaw_at_departure)
-    total = 0.0
     lengths = []
+    total = 0.0
     for i in range(n):
         x0, y0 = corners[i]
         x1, y1 = corners[(i + 1) % n]
@@ -247,7 +260,20 @@ def loop_waypoints(corners, speed, phase=0.0):
         lengths.append(seg)
         total += seg
 
-    t = -phase * (total / speed)
+    # Spatial phase: rotate the corner list so the actor STARTS partway
+    # around the loop (at the corner nearest the phase arc position).
+    if phase:
+        arc, target = 0.0, phase * total
+        start = 0
+        for i in range(n):
+            if arc >= target:
+                start = i
+                break
+            arc += lengths[i]
+        corners = corners[start:] + corners[:start]
+        lengths = lengths[start:] + lengths[:start]
+
+    t = 0.0
     wps = []
     for i in range(n):
         x0, y0 = corners[i]
@@ -255,8 +281,7 @@ def loop_waypoints(corners, speed, phase=0.0):
         yaw_out = math.atan2(y1 - y0, x1 - x0)
         wps.append((t, x0, y0, yaw_out))
         seg = lengths[i]
-        pre = max(seg - 0.5, seg * 0.5)
-        # arrival point before the next corner, still on incoming heading
+        pre = max(seg - corner_cut, seg * 0.5)
         wps.append(
             (
                 t + pre / speed,
@@ -266,13 +291,10 @@ def loop_waypoints(corners, speed, phase=0.0):
             )
         )
         t += seg / speed
-    # close the loop on the first corner's outgoing heading
     x0, y0 = corners[0]
     x1, y1 = corners[1]
     wps.append((t, x0, y0, math.atan2(y1 - y0, x1 - x0)))
-    # normalize negative phase times to start at 0
-    t0 = wps[0][0]
-    return [(t - t0, x, y, yaw) for (t, x, y, yaw) in wps]
+    return wps
 
 
 def line_waypoints(a, b, speed, dwell=1.0):
@@ -380,34 +402,59 @@ WORLD_SYSTEMS = """    <physics name="1ms" type="ode">
     </light>
 """
 
+CORNER_TAGS = ["sw", "se", "ne", "nw"]
+
 
 def generate(args):
     rng = random.Random(args.seed)
     blocks = args.blocks
     street = args.street
     block = args.block
+    sidewalk = args.sidewalk
     lane = street / 4.0  # right-lane offset from street centerline
 
     extent = blocks * block + (blocks + 1) * street
     half = extent / 2.0
-    # street centerline coordinates (same grid on both axes)
     centers = [-half + street / 2.0 + i * (street + block) for i in range(blocks + 1)]
-    # block center coordinates
     block_centers = [-half + street + block / 2.0 + i * (street + block) for i in range(blocks)]
 
-    spawn_row = blocks // 2
-    spawn = (centers[0], centers[spawn_row])  # west intersection of the spawn row
+    # Sidewalk-ring corner nodes: the roadmap graph vertices.
+    rh = block / 2.0 - sidewalk / 2.0  # ring half-extent from block center
+    corner = {}  # (bi, bj, tag) -> world (x, y)
+    for bi, bx in enumerate(block_centers):
+        for bj, by in enumerate(block_centers):
+            corner[(bi, bj, "sw")] = (bx - rh, by - rh)
+            corner[(bi, bj, "se")] = (bx + rh, by - rh)
+            corner[(bi, bj, "ne")] = (bx + rh, by + rh)
+            corner[(bi, bj, "nw")] = (bx - rh, by + rh)
+
+    # Crosswalk links between adjacent blocks (interior streets only —
+    # perimeter streets have nothing on their far side).
+    crosswalks = []  # (keyA, keyB) of corner dict keys
+    for i in range(1, blocks):  # vertical street i between columns i-1, i
+        for j in range(blocks):
+            crosswalks.append(((i - 1, j, "se"), (i, j, "sw")))
+            crosswalks.append(((i - 1, j, "ne"), (i, j, "nw")))
+    for j in range(1, blocks):  # horizontal street j between rows j-1, j
+        for i in range(blocks):
+            crosswalks.append(((i, j - 1, "nw"), (i, j, "sw")))
+            crosswalks.append(((i, j - 1, "ne"), (i, j, "se")))
+
+    # Robot spawn: SW corner node of block (0,0), facing east.
+    spawn = corner[(0, 0, "sw")]
 
     def planner(x, y):
         return (x - spawn[0], y - spawn[1])
 
     parts = []
     parts.append('<?xml version="1.0" ?>\n<sdf version="1.9">\n')
-    parts.append(f'  <world name="limo_city_blocks">\n\n')
+    parts.append('  <world name="limo_city_blocks">\n\n')
     parts.append(
         "    <!-- GENERATED by simulation/gen_city_world.py — do not edit by hand.\n"
         f"         blocks={blocks}x{blocks} block={block} street={street} "
-        f"seed={args.seed} textures={not args.no_textures}\n"
+        f"sidewalk={sidewalk} seed={args.seed} textures={not args.no_textures}\n"
+        "         Sidewalk-robot world: the robot navigates sidewalk rings +\n"
+        "         zebra crosswalks; car-sized vehicle actors own the roads.\n"
         f"         Robot spawn (planner-frame origin): world ({spawn[0]:.2f}, {spawn[1]:.2f}, yaw 0).\n"
         "         Companion files: config/maps/city_blocks_roadmap.yaml,\n"
         "         config/scenarios/city_patrol.yaml -->\n\n"
@@ -415,7 +462,6 @@ def generate(args):
     parts.append(GUI_TEMPLATE.format(cam_x=-half - 8, cam_y=-half - 8, cam_z=extent * 0.9))
     parts.append(WORLD_SYSTEMS)
 
-    # Ground plane
     ground_mat = material(color=(0.45, 0.5, 0.45))
     parts.append(
         '    <model name="ground_plane">\n'
@@ -436,8 +482,9 @@ def generate(args):
     tex = not args.no_textures
     asphalt = material(texture="asphalt.png") if tex else material(color=(0.22, 0.22, 0.24))
     concrete = material(texture="concrete.png") if tex else material(color=(0.5, 0.5, 0.5))
+    paving = material(texture="paving.png") if tex else material(color=(0.58, 0.57, 0.53))
 
-    # Road slabs (visual only — no collision, so no bump at the edges)
+    # Road slabs + lane lines (visual only)
     parts.append("    <!-- ============ ROADS ============ -->\n")
     for i, c in enumerate(centers):
         parts.append(
@@ -446,7 +493,6 @@ def generate(args):
         parts.append(
             static_box(f"road_ew_{i}", 0, c, 0.005, extent, street, 0.01, asphalt, collide=False)
         )
-    # Center dashes: one thin solid strip per street (kept above the slabs)
     line = material(color=(0.85, 0.75, 0.2))
     for i, c in enumerate(centers):
         parts.append(
@@ -455,6 +501,44 @@ def generate(args):
         parts.append(
             static_box(f"line_ew_{i}", 0, c, 0.011, extent, 0.04, 0.002, line, collide=False)
         )
+    parts.append("\n")
+
+    # Sidewalk paving rings (visual only; N/S slabs full width, E/W slabs
+    # shortened between them so overlapping same-z slabs don't z-fight)
+    parts.append("    <!-- ============ SIDEWALKS ============ -->\n")
+    for bi, bx in enumerate(block_centers):
+        for bj, by in enumerate(block_centers):
+            s_off = block / 2.0 - sidewalk / 2.0
+            parts.append(static_box(f"walk_s_{bi}_{bj}", bx, by - s_off, 0.008, block, sidewalk, 0.012, paving, collide=False))
+            parts.append(static_box(f"walk_n_{bi}_{bj}", bx, by + s_off, 0.008, block, sidewalk, 0.012, paving, collide=False))
+            inner = block - 2 * sidewalk
+            parts.append(static_box(f"walk_w_{bi}_{bj}", bx - s_off, by, 0.008, sidewalk, inner, 0.012, paving, collide=False))
+            parts.append(static_box(f"walk_e_{bi}_{bj}", bx + s_off, by, 0.008, sidewalk, inner, 0.012, paving, collide=False))
+    parts.append("\n")
+
+    # Zebra crosswalk stripes (visual only), one band per crosswalk link,
+    # drawn across the street span between the two corner nodes.
+    parts.append("    <!-- ============ CROSSWALKS ============ -->\n")
+    stripe = material(color=(0.92, 0.92, 0.92))
+    for k, (ka, kb) in enumerate(crosswalks):
+        ax, ay = corner[ka]
+        bx2, by2 = corner[kb]
+        if abs(ay - by2) < 1e-6:  # crossing a vertical street, walking in x
+            cx = (ax + bx2) / 2.0
+            n_str = max(4, int(street / 0.5))
+            for s in range(n_str):
+                sx = cx - street / 2.0 + (s + 0.5) * street / n_str
+                parts.append(
+                    static_box(f"zebra_{k}_{s}", sx, ay, 0.013, 0.16, 0.5, 0.002, stripe, collide=False)
+                )
+        else:  # crossing a horizontal street, walking in y
+            cy = (ay + by2) / 2.0
+            n_str = max(4, int(street / 0.5))
+            for s in range(n_str):
+                sy = cy - street / 2.0 + (s + 0.5) * street / n_str
+                parts.append(
+                    static_box(f"zebra_{k}_{s}", ax, sy, 0.013, 0.5, 0.16, 0.002, stripe, collide=False)
+                )
     parts.append("\n")
 
     # Perimeter walls
@@ -467,13 +551,12 @@ def generate(args):
     parts.append(static_box("wall_west", -w, 0, 0.25, 0.2, extent + street, 0.5, wall_mat))
     parts.append("\n")
 
-    # Buildings: each block subdivides into 1, 2, or 4 footprints
+    # Buildings: inset behind the sidewalk ring; 1, 2, or 4 per block
     parts.append("    <!-- ============ BUILDINGS ============ -->\n")
-    sidewalk = 0.5  # setback from block edge to building face
     n_building = 0
     for bi, bx in enumerate(block_centers):
         for bj, by in enumerate(block_centers):
-            usable = block - 2 * sidewalk
+            usable = block - 2 * sidewalk - 0.2
             style = rng.choice(["single", "split_x", "split_y", "quad"])
             if style == "single":
                 cells = [(bx, by, usable, usable)]
@@ -503,70 +586,65 @@ def generate(args):
                     static_box(f"building_{n_building}", cx, cy, h / 2, sx, sy, h, mat)
                 )
                 n_building += 1
-    # A few concrete street-furniture obstacles (parked boxes) on street edges
+    # Street-edge parked obstacles (in the road, not on sidewalks)
     for k in range(blocks):
         c = centers[rng.randrange(len(centers))]
         along = rng.uniform(-half * 0.6, half * 0.6)
-        side = rng.choice([-1, 1]) * (street / 2 - 0.25)
+        side = rng.choice([-1, 1]) * (street / 2 - 0.35)
         if rng.random() < 0.5:
-            parts.append(static_box(f"parked_box_{k}", along, c + side, 0.15, 0.5, 0.3, 0.3, concrete, yaw=rng.uniform(-0.1, 0.1)))
+            parts.append(static_box(f"parked_box_{k}", along, c + side, 0.15, 0.6, 0.35, 0.3, concrete, yaw=rng.uniform(-0.1, 0.1)))
         else:
-            parts.append(static_box(f"parked_box_{k}", c + side, along, 0.15, 0.3, 0.5, 0.3, concrete, yaw=rng.uniform(-0.1, 0.1)))
+            parts.append(static_box(f"parked_box_{k}", c + side, along, 0.15, 0.35, 0.6, 0.3, concrete, yaw=rng.uniform(-0.1, 0.1)))
     parts.append("\n")
 
     # ------------------------------------------------------------------
-    # Pedestrian actors
+    # Pedestrian actors: sidewalk loopers + crosswalk crossers, sharing
+    # exactly the network the robot navigates.
     # ------------------------------------------------------------------
     parts.append("    <!-- ============ PEDESTRIANS (kinematic actors) ============ -->\n")
     ped_colors = [(0.9, 0.75, 0.2), (0.2, 0.55, 0.9), (0.85, 0.3, 0.3), (0.3, 0.8, 0.5)]
     n_ped = 0
 
-    def add_ped(waypoints, speed_desc):
+    def add_ped(waypoints, kind):
         nonlocal n_ped
         parts.append(
             actor_xml(
-                f"ped_{n_ped}_{speed_desc}",
+                f"ped_{n_ped}_{kind}",
                 pedestrian_visual(ped_colors[n_ped % len(ped_colors)]),
                 waypoints,
             )
         )
         n_ped += 1
 
-    # (a) street crossers at random interior intersections
-    interior = [(i, j) for i in range(len(centers)) for j in range(len(centers))]
-    rng.shuffle(interior)
-    for (i, j) in interior[: args.peds // 2]:
-        cx, cy = centers[i], centers[j]
+    # (a) crosswalk crossers on random crosswalks
+    xw_pool = crosswalks[:]
+    rng.shuffle(xw_pool)
+    for (ka, kb) in xw_pool[: args.peds // 2]:
         speed = rng.uniform(0.35, 0.6)
-        reach = street / 2 + 0.7
-        if rng.random() < 0.5:
-            a, b = (cx - reach, cy + rng.uniform(-0.6, 0.6)), (cx + reach, cy + rng.uniform(-0.6, 0.6))
-        else:
-            a, b = (cx + rng.uniform(-0.6, 0.6), cy - reach), (cx + rng.uniform(-0.6, 0.6), cy + reach)
-        add_ped(line_waypoints(a, b, speed, dwell=rng.uniform(0.5, 2.0)), "cross")
+        add_ped(line_waypoints(corner[ka], corner[kb], speed, dwell=rng.uniform(0.5, 2.0)), "cross")
 
-    # (b) sidewalk loopers around random blocks
+    # (b) sidewalk loopers around random blocks (the robot's own rings)
     for _ in range(args.peds - args.peds // 2):
         bi = rng.randrange(blocks)
         bj = rng.randrange(blocks)
         bx, by = block_centers[bi], block_centers[bj]
-        r = block / 2 - 0.25  # sidewalk ring just inside the block edge
-        corners = [(bx - r, by - r), (bx + r, by - r), (bx + r, by + r), (bx - r, by + r)]
+        pr = block / 2.0 - sidewalk / 2.0 - 0.3  # inside the robot line
+        ring = [(bx - pr, by - pr), (bx + pr, by - pr), (bx + pr, by + pr), (bx - pr, by + pr)]
         if rng.random() < 0.5:
-            corners.reverse()
-        add_ped(loop_waypoints(corners, rng.uniform(0.4, 0.7), phase=rng.random()), "loop")
+            ring.reverse()
+        add_ped(loop_waypoints(ring, rng.uniform(0.4, 0.7), phase=rng.random()), "loop")
 
     parts.append("\n")
 
     # ------------------------------------------------------------------
-    # Vehicle actors: right-hand traffic, CCW circuits with lane offset
+    # Vehicle actors: car-sized, right-hand traffic, CCW circuits with
+    # lane offset. They conflict with the robot only at crosswalks.
     # ------------------------------------------------------------------
     parts.append("    <!-- ============ VEHICLES (kinematic actors) ============ -->\n")
     veh_colors = [(0.75, 0.15, 0.12), (0.12, 0.35, 0.7), (0.9, 0.6, 0.1), (0.2, 0.6, 0.3), (0.55, 0.2, 0.6)]
     n_veh = 0
 
     def block_circuit(bi, bj):
-        """CCW ring around block (bi,bj), offset outward onto the right lane."""
         x0, x1 = centers[bi], centers[bi + 1]
         y0, y1 = centers[bj], centers[bj + 1]
         return [
@@ -580,15 +658,13 @@ def generate(args):
     rng.shuffle(chosen_blocks)
     for k in range(min(args.vehicles - 1, len(chosen_blocks))):
         bi, bj = chosen_blocks[k]
-        speed = rng.uniform(0.45, 0.7)
-        wps = loop_waypoints(block_circuit(bi, bj), speed, phase=rng.random())
+        speed = rng.uniform(0.35, 0.55)
+        wps = loop_waypoints(block_circuit(bi, bj), speed, phase=rng.random(), corner_cut=0.9)
         parts.append(
             actor_xml(f"vehicle_{n_veh}_block", vehicle_visuals(veh_colors[n_veh % len(veh_colors)]), wps)
         )
         n_veh += 1
 
-    # One ring vehicle on the outer circuit (same CCW direction as the
-    # patrol route, so the robot meets it as slow traffic, not head-on).
     ring = [
         (centers[0] - lane, centers[0] - lane),
         (centers[-1] + lane, centers[0] - lane),
@@ -599,7 +675,7 @@ def generate(args):
         actor_xml(
             f"vehicle_{n_veh}_ring",
             vehicle_visuals(veh_colors[n_veh % len(veh_colors)]),
-            loop_waypoints(ring, 0.55, phase=0.3),
+            loop_waypoints(ring, 0.45, phase=0.3, corner_cut=0.9),
         )
     )
     n_veh += 1
@@ -607,13 +683,11 @@ def generate(args):
 
     # Robot. The PosePublisher plugin is REQUIRED: the gz-zmq bridge builds
     # its spawn-anchored true pose from /model/limo/pose and silently falls
-    # back to drifting wheel odometry without it (a city run accumulated
-    # ~1.5m of lateral error that wedged the robot against a building while
-    # it believed it was on the street centerline). z=0.075 rests the wheels
+    # back to drifting wheel odometry without it. z=0.075 rests the wheels
     # exactly on the plane so the t=0 physics settle doesn't shift the odom
     # anchor (same as obstacle_gauntlet.sdf).
     parts.append(
-        "    <!-- ============ LIMO PRO ROBOT ============ -->\n"
+        "    <!-- ============ LIMO PRO ROBOT (sidewalk robot) ============ -->\n"
         f"    <!-- Spawn anchors the planner/odom frame: world ({spawn[0]:.2f}, {spawn[1]:.2f}, yaw 0). -->\n"
         "    <include>\n"
         "      <uri>model://limo_pro</uri>\n"
@@ -636,11 +710,17 @@ def generate(args):
     world_path.write_text("".join(parts))
 
     # ------------------------------------------------------------------
-    # Roadmap: full street grid in the planner frame
+    # Roadmap: sidewalk rings + crosswalks in the planner frame
     # ------------------------------------------------------------------
+    def node_id(key):
+        bi, bj, tag = key
+        return f"b{bi}_{bj}_{tag}"
+
     rm = [
         "# GENERATED by simulation/gen_city_world.py — do not edit by hand.\n"
-        "# Street-grid roadmap for simulation/worlds/city_blocks.sdf.\n"
+        "# Sidewalk + crosswalk roadmap for simulation/worlds/city_blocks.sdf:\n"
+        "# nodes are sidewalk-ring corners of every block; links are sidewalk\n"
+        "# edges and zebra crosswalks (the robot is a sidewalk robot).\n"
         "#\n"
         "# Frame note: `planner` = the planning/odom frame, anchored at the robot\n"
         f"# spawn pose in the world ({spawn[0]:.2f}, {spawn[1]:.2f}, yaw 0), so these are\n"
@@ -649,40 +729,42 @@ def generate(args):
         "frame: planner\n"
         "nodes:\n"
     ]
-    for i, cx in enumerate(centers):
-        for j, cy in enumerate(centers):
-            px, py = planner(cx, cy)
-            rm.append(f"  - {{id: n{i}_{j}, x: {px:.2f}, y: {py:.2f}}}\n")
+    for key in sorted(corner):
+        px, py = planner(*corner[key])
+        rm.append(f"  - {{id: {node_id(key)}, x: {px:.2f}, y: {py:.2f}}}\n")
     rm.append("links:\n")
-    link_width = street - 0.8  # usable width: street minus edge margins
-    for i in range(len(centers)):
-        for j in range(len(centers)):
-            if i + 1 < len(centers):
+    walk_width = max(sidewalk - 0.2, 0.6)
+    for bi in range(blocks):
+        for bj in range(blocks):
+            ring = [(bi, bj, t) for t in CORNER_TAGS]
+            for a, b in zip(ring, ring[1:] + ring[:1]):
                 rm.append(
-                    f"  - {{from: n{i}_{j}, to: n{i + 1}_{j}, width: {link_width:.2f}, speed: {args.street_speed:.2f}}}\n"
+                    f"  - {{from: {node_id(a)}, to: {node_id(b)}, width: {walk_width:.2f}, speed: {args.sidewalk_speed:.2f}}}\n"
                 )
-            if j + 1 < len(centers):
-                rm.append(
-                    f"  - {{from: n{i}_{j}, to: n{i}_{j + 1}, width: {link_width:.2f}, speed: {args.street_speed:.2f}}}\n"
-                )
+    for (ka, kb) in crosswalks:
+        rm.append(
+            f"  - {{from: {node_id(ka)}, to: {node_id(kb)}, width: {walk_width:.2f}, speed: {args.crosswalk_speed:.2f}}}\n"
+        )
     roadmap_path = PROJECT / "config" / "maps" / "city_blocks_roadmap.yaml"
     roadmap_path.write_text("".join(rm))
 
     # ------------------------------------------------------------------
-    # Patrol scenario: outer ring, CCW from the spawn intersection
+    # Patrol scenario: city-perimeter sidewalk loop through the outer
+    # corner nodes (routes through sidewalks + crosswalks automatically)
     # ------------------------------------------------------------------
-    last = len(centers) - 1
+    last = blocks - 1
     ring_nodes = [
-        (last, spawn_row, "east_on_spawn_row"),
-        (last, last, "northeast_corner"),
-        (0, last, "northwest_corner"),
-        (0, spawn_row, "home_intersection"),
+        ((last, 0, "se"), "southeast_corner"),
+        ((last, last, "ne"), "northeast_corner"),
+        ((0, last, "nw"), "northwest_corner"),
+        ((0, 0, "sw"), "home_corner"),
     ]
     sc = [
         "# GENERATED by simulation/gen_city_world.py — do not edit by hand.\n"
-        "# Continuous city patrol for simulation/worlds/city_blocks.sdf:\n"
-        "# counter-clockwise loop around the outer ring, forever (patrol\n"
-        "# scenarios re-arm at waypoint 0 after the last waypoint).\n"
+        "# Continuous sidewalk patrol for simulation/worlds/city_blocks.sdf:\n"
+        "# counter-clockwise loop around the city perimeter sidewalks,\n"
+        "# crossing streets on zebra crosswalks, forever (patrol scenarios\n"
+        "# re-arm at waypoint 0 after the last waypoint).\n"
         "#\n"
         "# Launch:\n"
         "#   LIMO_ROADMAP_FILE=config/maps/city_blocks_roadmap.yaml \\\n"
@@ -693,14 +775,14 @@ def generate(args):
         f"# world ({spawn[0]:.2f}, {spawn[1]:.2f}, yaw 0); waypoints below are planner-frame.\n"
         "name: city_patrol\n"
         "scenario_type: patrol\n"
-        f"speed_limit: {args.street_speed:.2f}\n"
+        f"speed_limit: {args.sidewalk_speed:.2f}\n"
         "\n"
         "waypoints:\n"
     ]
-    for k, (i, j, label) in enumerate(ring_nodes):
-        px, py = planner(centers[i], centers[j])
-        ni, nj, _ = ring_nodes[(k + 1) % len(ring_nodes)]
-        nx, ny = planner(centers[ni], centers[nj])
+    for k, (key, label) in enumerate(ring_nodes):
+        px, py = planner(*corner[key])
+        nkey, _ = ring_nodes[(k + 1) % len(ring_nodes)]
+        nx, ny = planner(*corner[nkey])
         theta = math.atan2(ny - py, nx - px)
         sc.append(
             f"  - x: {px:.2f}\n    y: {py:.2f}\n    theta: {theta:.2f}\n"
@@ -710,14 +792,15 @@ def generate(args):
     scenario_path = PROJECT / "config" / "scenarios" / "city_patrol.yaml"
     scenario_path.write_text("".join(sc))
 
-    # Textures last (skipped with --no-textures)
     if tex:
         write_textures(rng, PROJECT / "simulation" / "models" / "city_textures")
 
-    print(f"world    : {world_path.relative_to(PROJECT)}  ({extent:.0f}x{extent:.0f} m, {n_building} buildings)")
-    print(f"actors   : {n_ped} pedestrians, {n_veh} vehicles")
-    print(f"roadmap  : {roadmap_path.relative_to(PROJECT)}  ({(blocks + 1) ** 2} nodes)")
-    print(f"scenario : {scenario_path.relative_to(PROJECT)}  (patrol ring, loops forever)")
+    n_nodes = len(corner)
+    n_links = blocks * blocks * 4 + len(crosswalks)
+    print(f"world    : {world_path.relative_to(PROJECT)}  ({extent:.0f}x{extent:.0f} m, {n_building} buildings, {len(crosswalks)} crosswalks)")
+    print(f"actors   : {n_ped} pedestrians, {n_veh} car-sized vehicles")
+    print(f"roadmap  : {roadmap_path.relative_to(PROJECT)}  ({n_nodes} nodes, {n_links} links, sidewalk+crosswalk)")
+    print(f"scenario : {scenario_path.relative_to(PROJECT)}  (perimeter sidewalk patrol, loops forever)")
     if tex:
         print("textures : simulation/models/city_textures/ (procedural PBR albedo)")
 
@@ -725,17 +808,21 @@ def generate(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--blocks", type=int, default=3, help="city blocks per side (default 3)")
-    ap.add_argument("--block", type=float, default=6.0, help="block size, m (default 6.0)")
+    ap.add_argument("--block", type=float, default=7.0, help="block size, m (default 7.0)")
     ap.add_argument("--street", type=float, default=3.0, help="street width, m (default 3.0)")
+    ap.add_argument("--sidewalk", type=float, default=1.5, help="sidewalk width, m (default 1.5)")
     ap.add_argument("--peds", type=int, default=8, help="pedestrian actors (default 8)")
     ap.add_argument("--vehicles", type=int, default=4, help="vehicle actors incl. ring car (default 4)")
-    ap.add_argument("--street-speed", type=float, default=1.0, help="roadmap link speed cap, m/s")
-    ap.add_argument("--patrol-speed", type=float, default=0.8, help="patrol waypoint speed, m/s")
+    ap.add_argument("--sidewalk-speed", type=float, default=0.8, help="roadmap sidewalk speed cap, m/s")
+    ap.add_argument("--crosswalk-speed", type=float, default=0.7, help="roadmap crosswalk speed cap, m/s")
+    ap.add_argument("--patrol-speed", type=float, default=0.6, help="patrol waypoint speed, m/s")
     ap.add_argument("--seed", type=int, default=7, help="deterministic layout seed")
     ap.add_argument("--no-textures", action="store_true", help="flat colors instead of PBR textures")
     args = ap.parse_args()
     if args.blocks < 1:
         ap.error("--blocks must be >= 1")
+    if args.sidewalk >= args.block / 2:
+        ap.error("--sidewalk must be < block/2")
     generate(args)
 
 
