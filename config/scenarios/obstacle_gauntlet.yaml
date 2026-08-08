@@ -35,7 +35,7 @@ waypoints:
     label: "lane_east"
 
   - x: 7.0
-    y: 0.0
+    y: 0.85
     theta: 0.0
     tolerance: 0.5
     speed: 1.5
@@ -49,7 +49,7 @@ waypoints:
     label: "gate_cleared"
 
   - x: 13.2
-    y: 0.0
+    y: 0.5
     theta: 0.0
     tolerance: 0.5
     speed: 2.2

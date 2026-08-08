@@ -1,0 +1,21 @@
+# Obstacle gauntlet, single-goal variant: one mission waypoint at the far
+# end of the map. The roadmap layer computes ONE full route from the start
+# to the goal through the node-link network (spawn → lane_n_w → lane_n_e →
+# chan_e → slalom_exit → gate_mid → gate_e → plaza → goal, ~21.6m) and the
+# planner follows it link by link — no intermediate mission waypoints, so
+# the route IS the global path. Use this to validate end-to-end roadmap
+# traversal; obstacle_gauntlet.yaml remains the waypoint-pinned profile.
+#
+# Frame note: planning/odom frame origin is the robot spawn pose in the world
+# (-9, 0, yaw 0), so these waypoints are world coordinates + (9, 0).
+name: obstacle_gauntlet_direct
+scenario_type: sequence
+speed_limit: 2.2
+
+waypoints:
+  - x: 17.9
+    y: 0.5
+    theta: 0.0
+    tolerance: 0.35
+    speed: 1.8
+    label: "gauntlet_goal"

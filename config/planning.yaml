@@ -107,6 +107,14 @@ global_planner:
 
 local_planner:
   rate_hz: 10
+  # Pipeline delay compensation: pose age (~1 perception cycle) + planning
+  # cycle + control consumption, all at 10Hz. The local-planning input state
+  # is forward-projected along its measured twist by this much so commands
+  # are chosen for the pose the robot occupies when they bite.
+  # 0.15 = MEASURED (tools/measure_tracking.py, demo28 after the
+  # steer_p_gain plant fix): angular cmd->achieved 140ms, linear 80ms.
+  # Re-measure on the real chassis before field driving.
+  actuation_delay_s: 0.15
   # Pure-pursuit primary executor: the exact adaptive-lookahead arc onto the
   # global Hybrid A* path (clearance-centered, curvature-capped), verified by
   # the SAME sub-stepped collision + braking rollout machinery as DWA samples
@@ -114,11 +122,56 @@ local_planner:
   # the slalom apex hitch: constant-arc DWA sampling cannot represent the
   # counter-steer an S-transition needs, pursuit's lookahead point simply
   # crosses the apex.
+  # Tracking MPC: PRIMARY executor on forward runs. Joint speed+curvature
+  # optimization over a receding horizon — candidate control sequences
+  # (two-phase curvature x accel profiles) scored on lateral offset to the
+  # path, heading error, tracking of a stop-exact reference speed profile
+  # (ramps to zero at the run end at 70% of the braking limit), and
+  # curvature smoothness; every candidate collision-checked like DWA.
+  # Declines (-> pursuit) on reverse runs, near run ends, infeasible windows.
+  tracking_mpc:
+    enabled: true
+    horizon_steps: 14   # x dt = 1.4s horizon
+    dt: 0.1
+    phase1_s: 0.4       # candidates hold their sampled curvature this long
+    w_lat: 6.0          # lateral-offset weight (keep offset minimal on-path)
+    w_head: 1.5         # heading-error weight (damps the pursuit weave)
+    w_speed: 1.0        # reference-speed tracking weight
+    w_dkappa: 0.6       # curvature-change smoothness weight (within horizon)
+    w_kappa_cont: 0.5   # cycle-to-cycle steer continuity (no direction flips)
+    finish_m: 0.5       # hand the run end back to pursuit inside this
+    a_lat_max: 1.5      # m/s^2; anticipatory profile brakes BEFORE bends
   pursuit:
-    k_v: 1.0            # lookahead gain (s of travel): L = clamp(k_v*|v|, min, max)
+    k_v: 1.0            # base lookahead gain (s of travel): L_base = clamp(k_v*|v|, min, max)
     lookahead_min: 0.6  # m, lookahead floor (crawl stability)
     lookahead_max: 2.5  # m, lookahead cap
-    a_lat_max: 2.0      # m/s^2 curvature slow-down governor: v <= sqrt(a_lat_max/|kappa|)
+    # Curvature slow-down governor, anticipatory: v <= sqrt(a_lat_max/|kappa|)
+    # is enforced not just on the current pursuit arc but along a braking-
+    # aware profile of the path ahead (horizon = braking distance + 0.5m,
+    # floored at 3m), so the robot brakes BEFORE a bend instead of arriving
+    # at leg speed, cutting the reference, and getting every rollout speed
+    # step rejected (Blocked -> recovery at the route's 90-degree entry turn).
+    # 1.5: at 2.0 bends were taken fast enough that a mid-bend correction
+    # (heading error on top of path curvature) still overshot the reference.
+    a_lat_max: 1.5      # m/s^2
+    # Minimum turning speed: curvature-derived limits never command below
+    # this, so tight bends are rolled through instead of stalled at. Genuine
+    # stops (cusp ramps, requested stops, rollout step-down) still go lower.
+    v_turn_min: 0.2     # m/s
+    # Curvature-adaptive lookahead: L = clamp(L_base / (1 + gain*|kappa_max|
+    # *L_base), lookahead_min, L_base) with kappa_max the tightest path
+    # curvature within L_base of arc ahead. Long lookahead on straights
+    # (stability), short in bends (tracking accuracy, no corner-cutting).
+    # 0 disables (speed-only lookahead).
+    curvature_lookahead_gain: 0.6
+    # Heading-error lookahead shrink: after the target bearing alpha is
+    # known, one refinement re-finds the target at L' = clamp(L/(1 +
+    # gain*|alpha|), lookahead_min, L). The curvature shrink above reacts to
+    # PATH bends; this one reacts to the robot's own bearing error, so a
+    # post-recovery convergence onto a straight reference turns at the
+    # platform's tight radius (and the a_lat governor brakes to turning
+    # speed) instead of drifting back on a ~2m-radius arc. 0 disables.
+    heading_error_lookahead_gain: 1.0
     # Speed cap (magnitude) while executing a PLANNED reverse path segment
     # (mirrored pure pursuit, lookahead behind, rollout-verified with the
     # actual signed command). Reverse is the blind direction.
@@ -235,3 +288,31 @@ roadmap:
   leg_min_m: 2.0                # leg goal kept until the robot closes within this...
   leg_max_m: 4.0                # ...then re-placed this far ahead along the route (node-snapped)
   deviation_m: 1.5              # lateral deviation from the route polyline that forces a reroute
+  # Reference-direct following: the route polyline IS the global path (no
+  # Hybrid A*, no smoother, no hysteresis — it always starts at the robot's
+  # projection). Obstacle avoidance = the local planner's quintic lateral
+  # offsets + collision rejection; blocked links detected by the
+  # no-progress watchdog alone.
+  # false (reverted 2026-08-08): the route-direct experiment moved ALL
+  # avoidance into local lateral offsets and regressed 5 straight runs;
+  # the A*-planned metric path against static obstacles is the completing
+  # baseline (demos 18/19/21) and matches the intended architecture:
+  # optimal static path + local tracking with dynamic avoidance.
+  follow_route_directly: false
+  # Reference corridor: with an active route, Hybrid A* treats the route
+  # polyline as a REFERENCE PATH instead of free-space topology toward a
+  # carrot goal. Expansions pay corridor_cost_weight per meter of travel at
+  # one half-width of lateral offset (soft pull back onto the route), and
+  # nodes beyond corridor_hard_factor * corridor_half_width are rejected
+  # outright — the search space becomes a tube, so an in-tube "no path" is a
+  # strong obstruction signal that feeds the blocked-link reroute above. The
+  # start-pocket escape zone is exempt from the hard bound (a wedged robot
+  # may sit outside the tube and must be able to re-enter); the smoother
+  # obeys the same bound. No active route = unconstrained, exactly as before.
+  corridor_half_width: 1.0      # m; soft-pull normalization width
+  corridor_cost_weight: 2.0     # per meter of travel at one half-width of offset; 0 = hard tube only
+  # 1.2: at 2.0 the tube reached 2m off the lane reference — past the slalom
+  # wall — so a post-recovery southward heading let the replan legally dive
+  # into the slalom interior and wedge (demo12 live). 1.2m keeps 2.4m of
+  # dodge width around the reference while staying on the route's side.
+  corridor_hard_factor: 1.2     # tube radius = factor * half_width; must be >= 1
