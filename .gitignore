@@ -39,3 +39,9 @@ Thumbs.db
 
 # Secrets
 .env
+
+# Sim run artifacts (flight recordings + launch logs)
+*.limorec
+run_city.log
+run.log
+nohup.out
