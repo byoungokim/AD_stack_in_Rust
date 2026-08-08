@@ -1,15 +1,18 @@
-/// Local planner: pure-pursuit primary executor + DWA fallback (+ MPC for
-/// extreme curvature).
+/// Local planner: tracking-MPC primary executor on forward runs, pure
+/// pursuit beneath it (reverse runs, cusp/terminal endgame, MPC-infeasible
+/// windows), DWA as the reactive fallback sampler, scripted recovery last.
 ///
-/// Pure pursuit executes the global Hybrid A* path directly (the slalom
-/// apex S-transitions that constant-curvature DWA sampling cannot represent),
-/// verified with the same rollout machinery DWA uses. DWA remains the
-/// reactive fallback sampler when the pursuit arc is infeasible; MPC
-/// activates for tight maneuvers (parking, U-turns) where DWA's short
-/// horizon is insufficient. All run inside the 10Hz local-planner loop.
+/// The tracking MPC (`tracking_mpc`) optimizes speed and curvature JOINTLY
+/// over a receding horizon — piecewise arcs instead of pursuit's single
+/// circle, with a reference speed profile that ramps to zero exactly at the
+/// stop point. Pure pursuit executes signed runs (cusps included) verified
+/// with the shared rollout machinery; DWA samples reactively when both
+/// defer; the legacy SimpleMpc (`mpc`) remains for the extreme-curvature
+/// trigger. All run inside the 10Hz local-planner loop.
 pub mod dwa;
 pub mod mpc;
 pub mod pursuit;
+pub mod tracking_mpc;
 
 use serde::Deserialize;
 use tracing::debug;
@@ -86,16 +89,26 @@ pub struct RobotState {
     pub angular_vel: f64,
 }
 
-/// Obstacle from perception: either an untracked point sample (radius 0,
-/// zero velocity — walls, sector-sampled returns) or a tracked object with
-/// an extent radius and a world-frame velocity estimate.
-#[derive(Debug, Clone)]
+/// Obstacle from perception: an untracked point sample (radius 0, zero
+/// velocity — walls, sector-sampled returns), a tracked circle, or a
+/// tracked ORIENTED RECTANGLE (both half-extents > 0). The rectangle cures
+/// the circular over-approximation that closed narrow passages between box
+/// obstacles (a cube's circumscribed circle overstates its half-width by up
+/// to 41%); `radius` stays populated as the conservative fallback.
+#[derive(Debug, Clone, Default)]
 pub struct Obstacle {
     pub x: f64,
     pub y: f64,
     pub vx: f64,
     pub vy: f64,
     pub radius: f64,
+    /// Oriented-rectangle half extent along the box's own x axis (m);
+    /// active only when BOTH half extents are > 0.
+    pub half_x: f64,
+    /// Oriented-rectangle half extent along the box's own y axis (m).
+    pub half_y: f64,
+    /// Box heading in world frame (radians).
+    pub heading: f64,
 }
 
 impl Obstacle {
@@ -105,9 +118,23 @@ impl Obstacle {
         Self {
             x,
             y,
-            vx: 0.0,
-            vy: 0.0,
-            radius: 0.0,
+            ..Default::default()
+        }
+    }
+
+    /// Tracked oriented-rectangle obstacle (test/construction convenience).
+    #[allow(dead_code)]
+    pub fn boxed(x: f64, y: f64, half_x: f64, half_y: f64, heading: f64) -> Self {
+        Self {
+            x,
+            y,
+            // Conservative circular fallback for any consumer that ignores
+            // the rectangle: the circumscribed radius.
+            radius: (half_x * half_x + half_y * half_y).sqrt(),
+            half_x,
+            half_y,
+            heading,
+            ..Default::default()
         }
     }
 
@@ -121,15 +148,25 @@ impl Obstacle {
         (self.vx * self.vx + self.vy * self.vy).sqrt()
     }
 
-    /// Extent radius grown by prediction uncertainty at lookahead `t`:
-    /// constant-velocity prediction is exact on straight legs and wrong when
-    /// the object turns or reverses, so the possible deviation grows with
-    /// how far the object travels in the prediction window. Measured: a
-    /// pedestrian turning a corner mid-prediction was clipped at -0.128m
-    /// ground truth without this.
-    pub fn effective_radius_at(&self, t: f64) -> f64 {
-        let speed = (self.vx * self.vx + self.vy * self.vy).sqrt();
-        self.radius + PREDICTION_UNCERTAINTY * speed * t
+    /// Signed distance (m) from point (px, py) to this obstacle's boundary
+    /// at lookahead `t`: velocity-propagated and uncertainty-inflated, shape
+    /// aware (oriented rectangle when half extents are set, else the circle).
+    /// Negative inside. The single geometry every collision check shares —
+    /// callers subtract their own margins (robot requirement, moving margin).
+    pub fn net_distance_at(&self, px: f64, py: f64, t: f64) -> f64 {
+        let (ox, oy) = self.position_at(t);
+        let grow = PREDICTION_UNCERTAINTY * self.speed() * t;
+        if self.half_x > 0.0 && self.half_y > 0.0 {
+            let (dx, dy) = (px - ox, py - oy);
+            let (c, s) = (self.heading.cos(), self.heading.sin());
+            let bx = (dx * c + dy * s).abs() - (self.half_x + grow);
+            let by = (-dx * s + dy * c).abs() - (self.half_y + grow);
+            let outside = (bx.max(0.0).powi(2) + by.max(0.0).powi(2)).sqrt();
+            let inside = bx.max(by).min(0.0);
+            outside + inside
+        } else {
+            ((px - ox).powi(2) + (py - oy).powi(2)).sqrt() - (self.radius + grow)
+        }
     }
 }
 
@@ -146,8 +183,19 @@ pub struct LocalPlannerConfig {
     pub mpc: mpc::MpcConfig,
     #[serde(default)]
     pub pursuit: pursuit::PursuitConfig,
+    #[serde(default)]
+    pub tracking_mpc: tracking_mpc::TrackingMpcConfig,
     #[serde(default = "default_mpc_trigger_curvature")]
     pub mpc_trigger_curvature: f64, // use MPC when path curvature exceeds this
+    /// Pipeline delay (s) between the pose the planner sees and the moment
+    /// its command reaches the chassis: ~1 perception cycle of pose age +
+    /// 1 planning cycle + 1 control cycle at 10Hz each. The local-planning
+    /// input state is forward-projected along its measured twist by this
+    /// much, so commands are chosen for the pose the robot will occupy when
+    /// they bite instead of the pose it left behind (at 2 m/s the stale pose
+    /// is 0.4-0.8m behind reality — a systematic tracking gap). 0 disables.
+    #[serde(default = "default_actuation_delay_s")]
+    pub actuation_delay_s: f64,
 }
 
 fn default_rate_hz() -> u32 {
@@ -159,6 +207,40 @@ fn default_mpc_trigger_curvature() -> f64 {
     // cost-pinned confidence then deadlocked the arbitrator gate.
     2.2
 } // 1/m
+fn default_actuation_delay_s() -> f64 {
+    0.2
+}
+
+/// Forward-project a robot state along its measured twist by `tau` seconds
+/// (constant-curvature arc; straight-line below the angular-rate epsilon).
+/// The actuation-delay compensation for the local-planning input.
+pub fn project_state(s: &RobotState, tau: f64) -> RobotState {
+    if tau <= 0.0 {
+        return s.clone();
+    }
+    let (v, w) = (s.linear_vel, s.angular_vel);
+    let (x, y, theta) = if w.abs() < 1e-6 {
+        (
+            s.x + v * s.theta.cos() * tau,
+            s.y + v * s.theta.sin() * tau,
+            s.theta,
+        )
+    } else {
+        let r = v / w;
+        (
+            s.x + r * ((s.theta + w * tau).sin() - s.theta.sin()),
+            s.y - r * ((s.theta + w * tau).cos() - s.theta.cos()),
+            s.theta + w * tau,
+        )
+    };
+    RobotState {
+        x,
+        y,
+        theta,
+        linear_vel: v,
+        angular_vel: w,
+    }
+}
 
 impl Default for LocalPlannerConfig {
     fn default() -> Self {
@@ -167,26 +249,57 @@ impl Default for LocalPlannerConfig {
             dwa: dwa::DwaConfig::default(),
             mpc: mpc::MpcConfig::default(),
             pursuit: pursuit::PursuitConfig::default(),
+            tracking_mpc: tracking_mpc::TrackingMpcConfig::default(),
             mpc_trigger_curvature: default_mpc_trigger_curvature(),
+            actuation_delay_s: default_actuation_delay_s(),
         }
     }
 }
 
 impl LocalPlannerConfig {
     /// Startup validation (fail loud on nonsense YAML); the DWA and pursuit
-    /// numbers are the safety-relevant ones.
+    /// numbers are the safety-relevant ones, plus the cross-struct coherence
+    /// checks neither struct can perform alone.
     pub fn validate(&self) -> Result<(), String> {
         self.dwa.validate()?;
-        self.pursuit.validate()
+        self.pursuit.validate()?;
+        self.tracking_mpc.validate()?;
+        // Pursuit inverts the smoother's steering feed-forward through the
+        // bicycle model (|κ| = |tan δ| / wheelbase) for the anticipatory
+        // curvature profile — a non-positive wheelbase poisons every κ.
+        if !(self.mpc.wheelbase > 0.0 && self.mpc.wheelbase.is_finite()) {
+            return Err(format!(
+                "mpc.wheelbase must be > 0 (pursuit curvature profile depends on it), got {}",
+                self.mpc.wheelbase
+            ));
+        }
+        // A turning-speed floor above the platform limit would ask curvature
+        // governors to hold a speed the dynamics cannot deliver.
+        if self.pursuit.v_turn_min > self.dwa.max_speed {
+            return Err(format!(
+                "pursuit.v_turn_min ({}) must be <= dwa.max_speed ({})",
+                self.pursuit.v_turn_min, self.dwa.max_speed
+            ));
+        }
+        // Delay compensation beyond a second would be extrapolating the pose
+        // past any believable pipeline latency (and past obstacle validity).
+        if !(0.0..=1.0).contains(&self.actuation_delay_s) || !self.actuation_delay_s.is_finite() {
+            return Err(format!(
+                "actuation_delay_s must be in [0, 1], got {}",
+                self.actuation_delay_s
+            ));
+        }
+        Ok(())
     }
 }
 
-/// Unified local planner: pure-pursuit primary + DWA fallback (+ MPC).
+/// Unified local planner: tracking-MPC primary + pursuit + DWA fallback.
 pub struct LocalPlanner {
     config: LocalPlannerConfig,
     dwa_planner: dwa::DwaPlanner,
     mpc_planner: mpc::SimpleMpc,
     pursuit_planner: pursuit::PursuitPlanner,
+    tracking_mpc: tracking_mpc::TrackingMpc,
     use_mpc: bool,
     /// Linear speed of the last emitted command from ANY executor — the
     /// accel-limit reference for the pursuit ramp (a scripted reverse or a
@@ -198,16 +311,32 @@ impl LocalPlanner {
     pub fn new(config: LocalPlannerConfig) -> Self {
         let dwa_planner = dwa::DwaPlanner::new(config.dwa.clone());
         let mpc_planner = mpc::SimpleMpc::new(config.mpc.clone());
-        let pursuit_planner =
-            pursuit::PursuitPlanner::new(config.pursuit.clone(), config.dwa.clone());
+        let pursuit_planner = pursuit::PursuitPlanner::new(
+            config.pursuit.clone(),
+            config.dwa.clone(),
+            // Ackermann wheelbase for inverting the smoother's steering
+            // feed-forward back to curvature in the anticipatory profile.
+            config.mpc.wheelbase,
+        );
+        let tracking_mpc =
+            tracking_mpc::TrackingMpc::new(config.tracking_mpc.clone(), config.dwa.clone());
         Self {
             config,
             dwa_planner,
             mpc_planner,
             pursuit_planner,
+            tracking_mpc,
             use_mpc: false,
             prev_cmd_v: None,
         }
+    }
+
+    /// Install (or clear) the roadmap reference corridor for the DWA
+    /// fallback sampler — pursuit follows the global path (already
+    /// corridor-constrained at the source) and needs no bound of its own.
+    /// Called once per planning cycle; None whenever no route is active.
+    pub fn set_corridor(&mut self, corridor: Option<crate::global_planner::Corridor>) {
+        self.dwa_planner.set_corridor(corridor);
     }
 
     /// Compute a velocity command + predicted trajectory.
@@ -217,6 +346,7 @@ impl LocalPlanner {
     /// rollout-verified command, use it. Otherwise fall back to the existing
     /// DWA sampling (or MPC beyond the curvature trigger), then the recovery
     /// machinery as before (driven by the caller).
+    #[allow(dead_code)] // plan-only entry point kept for unit tests
     pub fn compute(
         &mut self,
         state: &RobotState,
@@ -224,29 +354,89 @@ impl LocalPlanner {
         obstacles: &[Obstacle],
         desired_speed: f64,
     ) -> LocalPlan {
+        self.compute_with_defer(state, path, obstacles, desired_speed)
+            .0
+    }
+
+    /// `compute` additionally reporting the pursuit deferral: `Some(reason)`
+    /// exactly when the PRIMARY executor was attempted and fell through to a
+    /// fallback this cycle (None: pursuit drove, or there was no path to
+    /// attempt). The caller's stale-heading streak needs the reason from
+    /// EVERY cycle — reporting it only from the recovery Reverse branch let
+    /// interleaved phases reset the count and kept a heading-stale path
+    /// alive indefinitely.
+    pub fn compute_with_defer(
+        &mut self,
+        state: &RobotState,
+        path: &[PathWaypoint],
+        obstacles: &[Obstacle],
+        desired_speed: f64,
+    ) -> (LocalPlan, Option<PursuitDefer>) {
         if path.is_empty() {
             // A deliberate stop (no path to follow, e.g. Idle) is a
             // high-confidence command. Low confidence is reserved for "could
             // not find a feasible trajectory", which the arbitrator escalates
             // to an emergency stop.
-            return LocalPlan {
-                command: VelocityCommand {
-                    linear_x: 0.0,
-                    angular_z: 0.0,
-                    confidence: 1.0,
+            return (
+                LocalPlan {
+                    command: VelocityCommand {
+                        linear_x: 0.0,
+                        angular_z: 0.0,
+                        confidence: 1.0,
+                    },
+                    trajectory: Vec::new(),
+                    executor: Executor::Dwa,
+                    planned_maneuver: false,
                 },
-                trajectory: Vec::new(),
-                executor: Executor::Dwa,
-                planned_maneuver: false,
-            };
+                None,
+            );
         }
 
-        // Pure pursuit first: the exact arc onto the global path (signed
+        // Tracking MPC first on FORWARD runs: joint speed+curvature
+        // optimization onto the path (piecewise arcs, exact-stop speed
+        // profile). It declines (None) on reverse runs, inside the run-end
+        // handoff zone, and on infeasible windows — pursuit owns those.
+        let (run_end, run_dir) = pursuit::active_run(path);
+        if run_dir == SegmentDir::Forward {
+            let prev_v = self.prev_cmd_v.unwrap_or(state.linear_vel);
+            if let Some((cmd, traj)) = self.tracking_mpc.compute(
+                state,
+                &path[..=run_end],
+                obstacles,
+                desired_speed,
+                prev_v,
+                // The path end is always a plan goal (mission pose or route
+                // carrot): braking to it is safe, and the carrot hops ahead
+                // before the ramp binds mid-route.
+                true,
+            ) {
+                self.use_mpc = false;
+                self.dwa_planner.note_external_command(cmd.linear_x);
+                self.prev_cmd_v = Some(cmd.linear_x);
+                // Publish the PLANNED sequence, not a constant-arc rollout
+                // of the first command: the polynomial plan is what the
+                // tracker should feed-forward and what the visualizer must
+                // show (the constant arc read as "circular planning" and
+                // hid the actual quintic from every downstream consumer).
+                return (
+                    LocalPlan {
+                        command: cmd,
+                        trajectory: traj,
+                        executor: Executor::Mpc,
+                        planned_maneuver: false,
+                    },
+                    None,
+                );
+            }
+        }
+
+        // Pure pursuit next: the exact arc onto the global path (signed
         // segments included), verified (and speed-stepped) by the shared
         // rollout machinery.
-        if let Ok(plan) = self.compute_pursuit(state, path, obstacles, desired_speed) {
-            return plan;
-        }
+        let defer = match self.compute_pursuit(state, path, obstacles, desired_speed) {
+            Ok(plan) => return (plan, None),
+            Err(reason) => reason,
+        };
 
         // Pursuit failed. On a REVERSE segment there is no fallback sampler:
         // DWA and MPC are forward-only and would chase a local goal behind
@@ -255,14 +445,17 @@ impl LocalPlanner {
         // see the blockage exactly as they would a forward one.
         if active_segment_reverse(path) {
             debug!("local exec=pursuit reverse segment blocked — infeasible stop");
-            return self.finish(
-                state,
-                VelocityCommand {
-                    linear_x: 0.0,
-                    angular_z: 0.0,
-                    confidence: 0.1,
-                },
-                Executor::Pursuit,
+            return (
+                self.finish(
+                    state,
+                    VelocityCommand {
+                        linear_x: 0.0,
+                        angular_z: 0.0,
+                        confidence: 0.1,
+                    },
+                    Executor::Pursuit,
+                ),
+                Some(defer),
             );
         }
 
@@ -287,7 +480,7 @@ impl LocalPlanner {
             executor, command.linear_x, command.angular_z, command.confidence
         );
 
-        self.finish(state, command, executor)
+        (self.finish(state, command, executor), Some(defer))
     }
 
     /// Pursuit-only attempt on the current global path — the PRIMARY
@@ -506,7 +699,7 @@ pub fn reverse_arc_blocker(
     let mut worst: Option<RearBlocker> = None;
     for obs in obstacles {
         let threshold = robot_radius + margin + moving_margin_gain * obs.speed();
-        let d0 = ((state.x - obs.x).powi(2) + (state.y - obs.y).powi(2)).sqrt() - obs.radius;
+        let d0 = obs.net_distance_at(state.x, state.y, 0.0);
         // Wedged-start allowance: never require more clearance than the start
         // pose already has (but never accept getting closer than that either).
         let allow = threshold.min(d0);
@@ -516,7 +709,7 @@ pub fn reverse_arc_blocker(
             th += kappa * ds;
             x -= th.cos() * ds;
             y -= th.sin() * ds;
-            let d = ((x - obs.x).powi(2) + (y - obs.y).powi(2)).sqrt() - obs.radius;
+            let d = obs.net_distance_at(x, y, 0.0);
             if d < min_d {
                 min_d = d;
             }
@@ -592,7 +785,7 @@ pub fn plan_reverse_escape(
         if lx <= 0.0 {
             continue; // not frontal
         }
-        let d = (dx * dx + dy * dy).sqrt() - obs.radius;
+        let d = obs.net_distance_at(state.x, state.y, 0.0);
         if d < FRONTAL_RANGE_M && d < nearest && ly.abs() > 1e-9 {
             nearest = d;
             side = ly.signum();
@@ -745,6 +938,7 @@ mod tests {
             vx: 0.0,
             vy: 0.0,
             radius: 0.3,
+            ..Default::default()
         }];
         assert!(!rear_corridor_clear(&state, &fat, 0.22, 0.05, 0.4, 0.3));
     }
@@ -803,6 +997,7 @@ mod tests {
             vx: 0.0,
             vy: 0.0,
             radius: 0.12,
+            ..Default::default()
         }];
         // Wall points 0.6m laterally on the right, side-rear, parallel to +x.
         let mut x = -1.5;
@@ -916,6 +1111,7 @@ mod tests {
             vx: 0.0,
             vy: 0.75,
             radius: 0.0,
+            ..Default::default()
         }];
         assert!(
             !rear_corridor_clear(&state, &moving_side, 0.22, 0.05, 0.4, 0.3),
@@ -941,6 +1137,7 @@ mod tests {
             vx: 0.45,
             vy: -0.6,
             radius: 0.15,
+            ..Default::default()
         };
         assert!((ped.speed() - 0.75).abs() < 1e-12);
     }
@@ -977,6 +1174,14 @@ mod tests {
         path
     }
 
+    /// Pursuit-focused tests: disable the tracking-MPC primary so the
+    /// pursuit behaviors under test stay observable.
+    fn pursuit_only() -> LocalPlannerConfig {
+        let mut cfg = LocalPlannerConfig::default();
+        cfg.tracking_mpc.enabled = false;
+        cfg
+    }
+
     #[test]
     fn s_curve_pursuit_tracks_apex_without_zero_speed() {
         // The apex-hitch regression test: eleven gauntlet attempts showed
@@ -985,7 +1190,7 @@ mod tests {
         // sample), churning the stuck detector. Pure pursuit must drive the
         // synthetic S end-to-end in an obstacle-free corridor WITHOUT EVER
         // commanding zero speed, staying on the pursuit executor throughout.
-        let mut planner = LocalPlanner::new(LocalPlannerConfig::default());
+        let mut planner = LocalPlanner::new(pursuit_only());
         let path = s_curve_path();
         let goal = path.last().unwrap().clone();
         let mut state = RobotState {
@@ -1039,6 +1244,88 @@ mod tests {
         );
     }
 
+    /// Distance from point (px, py) to the segment a→b.
+    fn point_segment_dist(px: f64, py: f64, a: &PathWaypoint, b: &PathWaypoint) -> f64 {
+        let (dx, dy) = (b.x - a.x, b.y - a.y);
+        let len2 = dx * dx + dy * dy;
+        let t = if len2 < 1e-12 {
+            0.0
+        } else {
+            (((px - a.x) * dx + (py - a.y) * dy) / len2).clamp(0.0, 1.0)
+        };
+        let (cx, cy) = (a.x + t * dx, a.y + t * dy);
+        ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
+    }
+
+    /// Closed-loop S-curve run at the given curvature-lookahead gain,
+    /// returning the maximum cross-track error (m) to the reference polyline.
+    fn s_curve_max_cross_track(gain: f64) -> f64 {
+        let mut cfg = pursuit_only();
+        cfg.pursuit.curvature_lookahead_gain = gain;
+        let mut planner = LocalPlanner::new(cfg);
+        let path = s_curve_path();
+        let goal = path.last().unwrap().clone();
+        let mut state = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 0.5,
+            angular_vel: 0.0,
+        };
+        let dt = 0.1;
+        let mut worst = 0.0f64;
+        for _ in 0..120 {
+            if ((state.x - goal.x).powi(2) + (state.y - goal.y).powi(2)).sqrt() < 0.65 {
+                break;
+            }
+            let plan = planner.compute(&state, &path, &[], 1.5);
+            state.x += plan.command.linear_x * state.theta.cos() * dt;
+            state.y += plan.command.linear_x * state.theta.sin() * dt;
+            state.theta += plan.command.angular_z * dt;
+            state.linear_vel = plan.command.linear_x;
+            state.angular_vel = plan.command.angular_z;
+            let cross = path
+                .windows(2)
+                .map(|w| point_segment_dist(state.x, state.y, &w[0], &w[1]))
+                .fold(f64::INFINITY, f64::min);
+            worst = worst.max(cross);
+        }
+        worst
+    }
+
+    #[test]
+    fn s_curve_curvature_lookahead_reduces_cross_track_error() {
+        // (h) The curvature-adaptive lookahead's observable payoff: with the
+        // shipped gain the S-curve closed loop must track the reference
+        // strictly tighter than the speed-only control run (gain = 0), whose
+        // long cruise lookahead chords across the r = 1.0 arcs.
+        let gain = LocalPlannerConfig::default()
+            .pursuit
+            .curvature_lookahead_gain;
+        assert!(gain > 0.0, "shipped default must enable the shrink");
+        let adaptive = s_curve_max_cross_track(gain);
+        let speed_only = s_curve_max_cross_track(0.0);
+        assert!(
+            adaptive < speed_only - 0.05,
+            "curvature-adaptive lookahead must cut cross-track error: adaptive {:.3} vs speed-only {:.3}",
+            adaptive,
+            speed_only
+        );
+    }
+
+    #[test]
+    fn local_planner_config_cross_validation() {
+        assert!(LocalPlannerConfig::default().validate().is_ok());
+        // A turning-speed floor above the platform speed limit is a typo.
+        let mut cfg = LocalPlannerConfig::default();
+        cfg.pursuit.v_turn_min = cfg.dwa.max_speed + 0.1;
+        assert!(cfg.validate().is_err());
+        // Pursuit inverts steering through the wheelbase — 0 poisons every κ.
+        let mut cfg = LocalPlannerConfig::default();
+        cfg.mpc.wheelbase = 0.0;
+        assert!(cfg.validate().is_err());
+    }
+
     #[test]
     fn blocked_pursuit_defers_to_dwa_executor() {
         // Wall dead ahead at 0.35m spanning the corridor: pursuit steps down
@@ -1046,7 +1333,7 @@ mod tests {
         // rollout, and arbitration must hand the cycle to DWA (exec=dwa) —
         // whose own infeasibility verdict then feeds the recovery machinery
         // exactly as before pursuit existed.
-        let mut planner = LocalPlanner::new(LocalPlannerConfig::default());
+        let mut planner = LocalPlanner::new(pursuit_only());
         let state = RobotState {
             x: 0.0,
             y: 0.0,
@@ -1080,6 +1367,64 @@ mod tests {
         let open = planner.compute(&state, &path, &[], 0.5);
         assert_eq!(open.executor, Executor::Pursuit);
         assert!(open.command.linear_x > 0.0);
+    }
+
+    #[test]
+    fn net_distance_shape_awareness() {
+        // Axis-aligned box 0.4x0.2 at origin: face distances, corner
+        // distance, inside sign, and the circle fallback.
+        let b = Obstacle::boxed(0.0, 0.0, 0.2, 0.1, 0.0);
+        assert!((b.net_distance_at(0.5, 0.0, 0.0) - 0.3).abs() < 1e-9);
+        assert!((b.net_distance_at(0.0, 0.5, 0.0) - 0.4).abs() < 1e-9);
+        let corner = ((0.3f64).powi(2) + (0.2f64).powi(2)).sqrt();
+        assert!((b.net_distance_at(0.5, 0.3, 0.0) - corner).abs() < 1e-9);
+        assert!(b.net_distance_at(0.0, 0.0, 0.0) < 0.0, "inside is negative");
+        // Rotated 90°: the long axis now lies along world y.
+        let r = Obstacle::boxed(0.0, 0.0, 0.2, 0.1, std::f64::consts::FRAC_PI_2);
+        assert!((r.net_distance_at(0.5, 0.0, 0.0) - 0.4).abs() < 1e-9);
+        assert!((r.net_distance_at(0.0, 0.5, 0.0) - 0.3).abs() < 1e-9);
+        // Circle fallback (no half extents): distance minus radius.
+        let c = Obstacle {
+            x: 0.0,
+            y: 0.0,
+            radius: 0.25,
+            ..Default::default()
+        };
+        assert!((c.net_distance_at(1.0, 0.0, 0.0) - 0.75).abs() < 1e-9);
+        // The box's circumscribed-circle fallback radius overstates the
+        // face clearance — the exact overshoot the rectangle removes.
+        assert!(b.radius > 0.2 && b.radius < 0.23);
+    }
+
+    #[test]
+    fn project_state_arc_and_straight() {
+        // Straight: 1.5 m/s for 0.2s along +x.
+        let s = RobotState {
+            x: 1.0,
+            y: 2.0,
+            theta: 0.0,
+            linear_vel: 1.5,
+            angular_vel: 0.0,
+        };
+        let p = project_state(&s, 0.2);
+        assert!((p.x - 1.3).abs() < 1e-9 && (p.y - 2.0).abs() < 1e-9);
+        // Arc: quarter circle check — v=1, w=PI/2 over 1s turns 90° with
+        // radius 2/PI; endpoint at (r, r) from a +x start.
+        let s = RobotState {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            linear_vel: 1.0,
+            angular_vel: std::f64::consts::FRAC_PI_2,
+        };
+        let p = project_state(&s, 1.0);
+        let r = 1.0 / std::f64::consts::FRAC_PI_2;
+        assert!((p.x - r).abs() < 1e-9, "arc x {} vs {}", p.x, r);
+        assert!((p.y - r).abs() < 1e-9, "arc y {} vs {}", p.y, r);
+        assert!((p.theta - std::f64::consts::FRAC_PI_2).abs() < 1e-9);
+        // Zero delay: identity.
+        let p = project_state(&s, 0.0);
+        assert_eq!((p.x, p.y), (0.0, 0.0));
     }
 
     #[test]
@@ -1122,7 +1467,7 @@ mod tests {
     fn two_segment_reverse_then_forward_closed_loop() {
         use crate::global_planner::SegmentDir;
 
-        let cfg = LocalPlannerConfig::default();
+        let cfg = pursuit_only();
         let (max_acc, max_dec, max_kappa, max_speed) = (
             cfg.dwa.max_acceleration,
             cfg.dwa.max_deceleration,

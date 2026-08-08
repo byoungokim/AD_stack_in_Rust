@@ -449,6 +449,151 @@ pub fn pose_blocked(grid: &OccupancyGrid, escape: Option<&EscapeZone>, x: f64, y
     grid.is_occupied(x, y)
 }
 
+// --- Reference-path corridor (roadmap route following) ---
+
+/// Reference corridor for route-following plans: the active roadmap route's
+/// current-leg polyline plus soft-pull and hard-bound geometry. With a
+/// corridor supplied, Hybrid A* treats the route as a REFERENCE PATH instead
+/// of exploring arbitrary topology toward a carrot goal:
+///
+/// - **Soft pull**: every expansion step is charged
+///   `cost_weight × step_length × (offset / half_width)` on top of the
+///   existing costs, where `offset` is the node's lateral distance to the
+///   polyline — a straight-down-the-reference plan beats any same-length
+///   excursion, while an obstacle-forced bulge stays affordable.
+/// - **Hard bound**: nodes farther than `hard_factor × half_width` from the
+///   polyline are rejected outright (the search space becomes a tube). The
+///   only exemption is the start-pocket escape zone (`corridor_blocked`):
+///   a wedged robot may sit outside the tube and must be able to re-enter.
+///
+/// Purely additive and rejection-only: with `None` corridor the search is
+/// byte-for-byte the unconstrained one.
+#[derive(Debug, Clone)]
+pub struct Corridor {
+    /// Reference polyline (world frame), at least 2 points.
+    points: Vec<(f64, f64)>,
+    half_width: f64,
+    cost_weight: f64,
+    /// Hard rejection bound (m) = hard_factor × half_width.
+    max_offset: f64,
+}
+
+impl Corridor {
+    /// Build a corridor; None when the polyline is degenerate (< 2 points)
+    /// or any parameter is non-positive/non-finite — the caller then plans
+    /// unconstrained, which is always safe. (Config validation rejects such
+    /// values at startup; this guard covers degenerate route slices.)
+    pub fn new(
+        points: Vec<(f64, f64)>,
+        half_width: f64,
+        cost_weight: f64,
+        hard_factor: f64,
+    ) -> Option<Self> {
+        if points.len() < 2
+            || !(half_width > 0.0 && half_width.is_finite())
+            || !(cost_weight >= 0.0 && cost_weight.is_finite())
+            || !(hard_factor > 0.0 && hard_factor.is_finite())
+        {
+            return None;
+        }
+        Some(Self {
+            points,
+            half_width,
+            cost_weight,
+            max_offset: hard_factor * half_width,
+        })
+    }
+
+    /// Lateral offset (m): distance from (x, y) to the reference polyline
+    /// (nearest point on any segment). The leg polyline is a handful of
+    /// segments, so the direct scan is cheap enough per expanded node.
+    pub fn offset(&self, x: f64, y: f64) -> f64 {
+        let mut best = f64::INFINITY;
+        for w in self.points.windows(2) {
+            let (ax, ay) = w[0];
+            let (bx, by) = w[1];
+            let (dx, dy) = (bx - ax, by - ay);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 1e-12 {
+                (((x - ax) * dx + (y - ay) * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let (px, py) = (ax + t * dx, ay + t * dy);
+            let d2 = (x - px).powi(2) + (y - py).powi(2);
+            if d2 < best {
+                best = d2;
+            }
+        }
+        best.sqrt()
+    }
+
+    /// Hard rejection bound (m) from the reference polyline.
+    pub fn hard_bound(&self) -> f64 {
+        self.max_offset
+    }
+
+    /// Soft-pull half width (m) — the offset at which the normalized lateral
+    /// ratio reaches 1.0. Exposed for the DWA fallback's corridor scoring.
+    pub fn half_width(&self) -> f64 {
+        self.half_width
+    }
+
+    /// Soft-pull weight — shared by the DWA fallback so both planners lean
+    /// toward the reference with the same configured strength.
+    pub fn cost_weight(&self) -> f64 {
+        self.cost_weight
+    }
+
+    /// (x, y) lies within the hard bound of the reference.
+    pub fn within_bound(&self, x: f64, y: f64) -> bool {
+        self.offset(x, y) <= self.max_offset
+    }
+
+    /// Soft-pull cost of one expansion step of `step_len` meters ending at
+    /// (x, y): `cost_weight × step_len × (offset / half_width)`.
+    fn step_cost(&self, x: f64, y: f64, step_len: f64) -> f64 {
+        self.cost_weight * step_len * (self.offset(x, y) / self.half_width)
+    }
+
+    /// Outside-start re-entry: when the plan starts OUTSIDE the tube (post-
+    /// excursion reroute — live: robot 2.1m off the replacement route's
+    /// reference after a lane excursion), every expansion was hard-rejected,
+    /// A* failed instantly, and the blocked-link watchdog blamed the world
+    /// for a constraint artifact — route flapping with an empty path. When
+    /// the start's own offset (plus a small margin) exceeds the hard bound,
+    /// raise the bound to it: the plan from the stranded pose becomes
+    /// feasible while the soft pull still draws it back onto the reference.
+    pub fn allow_reentry_from(&mut self, x: f64, y: f64) {
+        const REENTRY_MARGIN_M: f64 = 0.15;
+        let needed = self.offset(x, y) + REENTRY_MARGIN_M;
+        if needed > self.max_offset {
+            self.max_offset = needed;
+        }
+    }
+}
+
+/// Corridor hard-bound check with the start-pocket exemption: positions
+/// inside the escape zone are never corridor-rejected (a wedged robot may
+/// sit outside the tube and must be able to plan back into it). With no
+/// corridor, nothing is ever blocked — the unconstrained behavior.
+pub fn corridor_blocked(
+    corridor: Option<&Corridor>,
+    escape: Option<&EscapeZone>,
+    x: f64,
+    y: f64,
+) -> bool {
+    let Some(c) = corridor else {
+        return false;
+    };
+    if let Some(zone) = escape {
+        if zone.contains(x, y) {
+            return false;
+        }
+    }
+    !c.within_bound(x, y)
+}
+
 /// Minimum interval between "escape mode" INFO logs (the zone is re-detected
 /// every 10Hz cycle while the robot sits in the pocket).
 const ESCAPE_LOG_PERIOD: std::time::Duration = std::time::Duration::from_secs(2);
@@ -756,6 +901,24 @@ impl HybridAStar {
         clearance: Option<&ClearanceField>,
         escape: Option<&EscapeZone>,
     ) -> (Option<Vec<PathWaypoint>>, PlanStats) {
+        self.plan_with_corridor(start, goal, grid, clearance, escape, None)
+    }
+
+    /// `plan_with_escape` additionally constrained to a reference corridor
+    /// (active roadmap route leg): expansions pay the corridor soft pull and
+    /// nodes beyond the hard bound are rejected — the escape zone exempts a
+    /// wedged out-of-tube start, and Reeds-Shepp samples obey the same hard
+    /// bound. With `corridor: None` the search is byte-for-byte the
+    /// unconstrained one.
+    pub fn plan_with_corridor(
+        &self,
+        start: &Pose,
+        goal: &Pose,
+        grid: &OccupancyGrid,
+        clearance: Option<&ClearanceField>,
+        escape: Option<&EscapeZone>,
+        corridor: Option<&Corridor>,
+    ) -> (Option<Vec<PathWaypoint>>, PlanStats) {
         let mut stats = PlanStats::default();
         let mut open = BinaryHeap::new();
         let mut nodes: Vec<Node> = Vec::new();
@@ -875,6 +1038,7 @@ impl HybridAStar {
                         grid,
                         clearance,
                         escape,
+                        corridor,
                     ) {
                         stats.rs_connected = true;
                         let mut path = self.reconstruct_path(&nodes, current.idx);
@@ -900,6 +1064,13 @@ impl HybridAStar {
                         continue;
                     }
 
+                    // Corridor hard bound: with an active route the search
+                    // space is a tube around the reference polyline (escape
+                    // zone exempted so a wedged start can re-enter).
+                    if corridor_blocked(corridor, escape, new_x, new_y) {
+                        continue;
+                    }
+
                     let new_key = self.discretize(new_x, new_y, new_theta, dir);
                     if closed.contains(&new_key) {
                         continue;
@@ -922,6 +1093,12 @@ impl HybridAStar {
                             0.0
                         }
                     });
+                    // Corridor soft pull: per-meter cost proportional to the
+                    // lateral offset from the reference (normalized by the
+                    // half width). Additive-only, so the Euclidean heuristic
+                    // stays admissible.
+                    let corridor_cost =
+                        corridor.map_or(0.0, |c| c.step_cost(new_x, new_y, self.config.step_size));
                     let travel_cost = match dir {
                         SegmentDir::Forward => self.config.step_size,
                         SegmentDir::Reverse => {
@@ -933,7 +1110,11 @@ impl HybridAStar {
                     } else {
                         0.0
                     };
-                    let step_cost = travel_cost + 0.5 * steer.abs() + proximity_cost + switch_cost;
+                    let step_cost = travel_cost
+                        + 0.5 * steer.abs()
+                        + proximity_cost
+                        + corridor_cost
+                        + switch_cost;
                     let new_g = ng_cost + step_cost;
                     let new_f = new_g + heuristic(new_x, new_y, new_theta, goal);
 
@@ -2152,8 +2333,15 @@ mod escape_tests {
         // The smoothed candidate (what main.rs actually publishes) keeps the
         // wedged start point and stays escape-valid on its first leg.
         let cfg = HybridAStarConfig::default();
-        let smoothed =
-            smoother::smooth_path(&raw, &grid, clearance.as_ref(), &cfg, 2.4, Some(&zone));
+        let smoothed = smoother::smooth_path(
+            &raw,
+            &grid,
+            clearance.as_ref(),
+            &cfg,
+            2.4,
+            Some(&zone),
+            None,
+        );
         assert!(smoothed.len() >= 2);
         assert!(
             (smoothed[0].x - start.x).abs() < 1e-9 && (smoothed[0].y - start.y).abs() < 1e-9,
@@ -2191,5 +2379,364 @@ mod escape_tests {
             obstacles: &[],
         };
         assert!(pose_blocked(&grid, Some(&corner_zone), -5.2, -4.95));
+    }
+}
+
+#[cfg(test)]
+mod corridor_tests {
+    use super::*;
+
+    fn pose(x: f64, y: f64, theta: f64) -> Pose {
+        Pose { x, y, theta }
+    }
+
+    fn grid_20m() -> OccupancyGrid {
+        OccupancyGrid::new(200, 200, 0.1, -10.0, -10.0)
+    }
+
+    /// Occupy every cell within `r` of (cx, cy).
+    fn blob(grid: &mut OccupancyGrid, cx: f64, cy: f64, r: f64) {
+        let mut dx = -(r + 0.05);
+        while dx <= r + 0.05 {
+            let mut dy = -(r + 0.05);
+            while dy <= r + 0.05 {
+                if (dx * dx + dy * dy).sqrt() <= r {
+                    grid.set_occupied(cx + dx, cy + dy);
+                }
+                dy += 0.05;
+            }
+            dx += 0.05;
+        }
+    }
+
+    /// Straight reference along y = 0 with the shipped defaults (half width
+    /// 1.0, pull weight 2.0, hard factor 2.0 → tube radius 2.0).
+    fn straight_ref(x0: f64, x1: f64) -> Corridor {
+        Corridor::new(vec![(x0, 0.0), (x1, 0.0)], 1.0, 2.0, 2.0).unwrap()
+    }
+
+    fn max_offset(path: &[PathWaypoint], c: &Corridor) -> f64 {
+        path.iter()
+            .map(|w| c.offset(w.x, w.y))
+            .fold(0.0_f64, f64::max)
+    }
+
+    #[test]
+    fn corridor_offset_and_bound_geometry() {
+        // Distance to a two-segment polyline: perpendicular on a segment,
+        // radial past the ends, and the hard bound at factor × half width.
+        let c = Corridor::new(vec![(0.0, 0.0), (4.0, 0.0), (4.0, 3.0)], 1.0, 2.0, 2.0).unwrap();
+        assert!((c.offset(2.0, 1.5) - 1.5).abs() < 1e-9);
+        assert!((c.offset(5.0, 2.0) - 1.0).abs() < 1e-9); // second segment
+        assert!((c.offset(-3.0, -4.0) - 5.0).abs() < 1e-9); // past the start, radial
+        assert!((c.hard_bound() - 2.0).abs() < 1e-9);
+        assert!(c.within_bound(1.0, 2.0));
+        assert!(!c.within_bound(1.0, 2.01));
+        // Degenerate / nonsense inputs refuse to build (caller then plans
+        // unconstrained, which is always safe).
+        assert!(Corridor::new(vec![(0.0, 0.0)], 1.0, 2.0, 2.0).is_none());
+        assert!(Corridor::new(vec![(0.0, 0.0), (1.0, 0.0)], 0.0, 2.0, 2.0).is_none());
+        assert!(Corridor::new(vec![(0.0, 0.0), (1.0, 0.0)], 1.0, -1.0, 2.0).is_none());
+        assert!(Corridor::new(vec![(0.0, 0.0), (1.0, 0.0)], 1.0, 2.0, f64::NAN).is_none());
+    }
+
+    #[test]
+    fn corridor_blocked_exempts_escape_zone_only() {
+        let c = straight_ref(-0.5, 4.5);
+        let zone = EscapeZone {
+            cx: 0.0,
+            cy: 2.5,
+            radius: 0.6,
+            obstacles: &[],
+        };
+        // Outside the tube, inside the zone: exempt.
+        assert!(!corridor_blocked(Some(&c), Some(&zone), 0.0, 2.5));
+        // Outside the tube, outside the zone: rejected.
+        assert!(corridor_blocked(Some(&c), Some(&zone), 2.0, 2.5));
+        assert!(corridor_blocked(Some(&c), None, 0.0, 2.5));
+        // Inside the tube: never rejected.
+        assert!(!corridor_blocked(Some(&c), None, 2.0, 1.9));
+        // No corridor: nothing is ever rejected.
+        assert!(!corridor_blocked(None, None, 99.0, 99.0));
+    }
+
+    #[test]
+    fn free_corridor_plan_hugs_reference_at_no_extra_cost() {
+        // (a) Straight reference, free corridor: the plan must hug the
+        // reference (max lateral offset < 0.15m) at no expansion overhead.
+        // On genuinely empty ground the corridor cost is ~0 on the line, so
+        // the two searches expand the SAME nodes (measured 31 = 31) —
+        // strict expansion reduction is a clutter phenomenon, pinned by
+        // `corridor_reduces_expansions_gauntlet_scale` below (measured 47%).
+        let planner = HybridAStar::new(HybridAStarConfig::default());
+        let grid = grid_20m();
+        let start = pose(0.0, 0.0, 0.0);
+        let goal = pose(8.0, 0.0, 0.0);
+        let corridor = straight_ref(-0.5, 8.5);
+        let clearance = planner.build_clearance(&grid);
+
+        let (free_path, free_stats) =
+            planner.plan_with_stats(&start, &goal, &grid, clearance.as_ref());
+        let (cor_path, cor_stats) = planner.plan_with_corridor(
+            &start,
+            &goal,
+            &grid,
+            clearance.as_ref(),
+            None,
+            Some(&corridor),
+        );
+        assert!(free_path.is_some(), "unconstrained plan must exist");
+        let cor_path = cor_path.expect("corridor plan must exist");
+
+        let off = max_offset(&cor_path, &corridor);
+        assert!(
+            off < 0.15,
+            "corridor plan strays {off:.3}m from the reference"
+        );
+        println!(
+            "free-corridor expansions: unconstrained={} corridor={}",
+            free_stats.iterations, cor_stats.iterations,
+        );
+        assert!(
+            cor_stats.iterations <= free_stats.iterations,
+            "free-corridor search must not expand more nodes ({} vs {})",
+            cor_stats.iterations,
+            free_stats.iterations,
+        );
+    }
+
+    #[test]
+    fn obstacle_on_reference_bulges_within_bound_and_reconverges() {
+        // (b) Obstacle sitting ON the reference mid-leg: the plan must bulge
+        // around it while staying inside the hard bound, then re-converge to
+        // the reference after the obstacle.
+        let planner = HybridAStar::new(HybridAStarConfig::default());
+        let mut grid = grid_20m();
+        blob(&mut grid, 4.0, 0.0, 0.3);
+        let start = pose(0.0, 0.0, 0.0);
+        let goal = pose(8.0, 0.0, 0.0);
+        let corridor = straight_ref(-0.5, 8.5);
+
+        let path = planner
+            .plan_with_corridor(&start, &goal, &grid, None, None, Some(&corridor))
+            .0
+            .expect("obstacle bulge must be plannable inside the tube");
+
+        let overall = max_offset(&path, &corridor);
+        assert!(
+            overall <= corridor.hard_bound() + 1e-9,
+            "plan left the tube: max offset {overall:.3}m"
+        );
+        let near_obstacle = path
+            .iter()
+            .filter(|w| w.x > 3.0 && w.x < 5.0)
+            .map(|w| corridor.offset(w.x, w.y))
+            .fold(0.0_f64, f64::max);
+        assert!(
+            near_obstacle > 0.3,
+            "plan did not bulge around the on-reference obstacle ({near_obstacle:.3}m)"
+        );
+        for w in path.iter().filter(|w| w.x > 7.0) {
+            assert!(
+                corridor.offset(w.x, w.y) < 0.15,
+                "plan failed to re-converge after the obstacle at ({:.2},{:.2})",
+                w.x,
+                w.y
+            );
+        }
+    }
+
+    #[test]
+    fn fully_walled_corridor_returns_none() {
+        // (c) The tube is fully walled: constrained plan() must return None
+        // (feeding the blocked-link/reroute machinery), while the
+        // unconstrained search proves a path EXISTS outside the tube — the
+        // corridor, not the map, causes the failure.
+        let planner = HybridAStar::new(HybridAStarConfig::default());
+        let mut grid = grid_20m();
+        // Wall across x ≈ 4.0 spanning y ∈ [-1.5, 1.5] — wider than the
+        // 1.2m tube radius, but leaving free space beyond ±1.5.
+        let mut y = -1.5;
+        while y <= 1.5 {
+            for xo in [3.9, 3.95, 4.0, 4.05, 4.1] {
+                grid.set_occupied(xo, y);
+            }
+            y += 0.05;
+        }
+        let start = pose(0.0, 0.0, 0.0);
+        let goal = pose(6.0, 0.0, 0.0);
+        let corridor = Corridor::new(vec![(-0.5, 0.0), (6.5, 0.0)], 0.6, 2.0, 2.0).unwrap();
+
+        let (cor_path, _) =
+            planner.plan_with_corridor(&start, &goal, &grid, None, None, Some(&corridor));
+        assert!(
+            cor_path.is_none(),
+            "a fully-walled tube must yield no plan (reroute is the escalation)"
+        );
+        assert!(
+            planner.plan(&start, &goal, &grid).is_some(),
+            "control: without the corridor the detour around the wall exists"
+        );
+    }
+
+    #[test]
+    fn wedged_start_outside_tube_reenters_via_escape_zone() {
+        // (d) Robot wedged OUTSIDE the tube (offset 1.6 > bound 1.2) inside a
+        // cone's hard inflation: with escape mode active the plan may start
+        // beyond the bound (exemption), must re-enter the corridor, and must
+        // reach the goal. Without the escape zone the same call fails.
+        let cone = PhysicalObstacle {
+            x: 0.38,
+            y: 1.6,
+            radius: 0.15,
+        };
+        let mut grid = OccupancyGrid::new(100, 100, 0.1, -5.0, -5.0);
+        blob(&mut grid, cone.x, cone.y, 0.24 + cone.radius); // hard inflation
+        let physical = [cone];
+        let start = pose(0.0, 1.6, 0.0);
+        let goal = pose(4.0, 0.0, 0.0);
+        let corridor = Corridor::new(vec![(-0.5, 0.0), (4.5, 0.0)], 0.6, 2.0, 2.0).unwrap();
+        assert!(corridor.offset(start.x, start.y) > corridor.hard_bound());
+
+        assert!(grid.is_occupied(start.x, start.y), "start must be wedged");
+        let zone = start_escape_zone(&grid, &physical, start.x, start.y, 0.6)
+            .expect("escape mode must activate");
+
+        // Control: wedged start, no escape zone → the search dies at once.
+        assert!(
+            planner_plan(&grid, &start, &goal, Some(&corridor), None).is_none(),
+            "without escape mode the wedged out-of-tube start must fail"
+        );
+
+        let path = planner_plan(&grid, &start, &goal, Some(&corridor), Some(&zone))
+            .expect("escape-relaxed corridor plan must exist");
+        assert!(
+            corridor.offset(path[0].x, path[0].y) > corridor.hard_bound(),
+            "first waypoint sits at the wedged start, outside the tube"
+        );
+        // Every out-of-tube waypoint must lie inside the escape zone — the
+        // exemption is spatially confined to the start pocket.
+        for w in &path {
+            assert!(
+                corridor.within_bound(w.x, w.y) || zone.contains(w.x, w.y),
+                "waypoint ({:.2},{:.2}) is outside both the tube and the zone",
+                w.x,
+                w.y
+            );
+        }
+        // The plan genuinely re-enters: its tail runs inside the tube and
+        // ends at the goal on the reference.
+        let last = path.last().unwrap();
+        assert!(
+            ((last.x - goal.x).powi(2) + (last.y - goal.y).powi(2)).sqrt() < 0.5,
+            "plan must end near the goal"
+        );
+        assert!(
+            corridor.offset(last.x, last.y) < 0.15,
+            "plan must re-converge to the reference"
+        );
+    }
+
+    /// Plan helper with a fresh clearance build (mirrors the main-loop call).
+    fn planner_plan(
+        grid: &OccupancyGrid,
+        start: &Pose,
+        goal: &Pose,
+        corridor: Option<&Corridor>,
+        escape: Option<&EscapeZone>,
+    ) -> Option<Vec<PathWaypoint>> {
+        let planner = HybridAStar::new(HybridAStarConfig::default());
+        let clearance = planner.build_clearance(grid);
+        planner
+            .plan_with_corridor(start, goal, grid, clearance.as_ref(), escape, corridor)
+            .0
+    }
+
+    #[test]
+    fn no_corridor_is_byte_identical_to_the_old_search() {
+        // (e) Control: with corridor None the new entry must reproduce the
+        // unconstrained search node-for-node on a cluttered scene.
+        let planner = HybridAStar::new(HybridAStarConfig::default());
+        let mut grid = grid_20m();
+        blob(&mut grid, 4.0, 0.3, 0.3);
+        blob(&mut grid, 6.0, -0.4, 0.3);
+        let start = pose(0.0, 0.0, 0.0);
+        let goal = pose(8.0, 0.0, 0.0);
+        let clearance = planner.build_clearance(&grid);
+
+        let old = planner
+            .plan_with_clearance(&start, &goal, &grid, clearance.as_ref())
+            .expect("cluttered scene must plan");
+        let new = planner
+            .plan_with_corridor(&start, &goal, &grid, clearance.as_ref(), None, None)
+            .0
+            .expect("corridor-None entry must plan identically");
+        assert_eq!(old.len(), new.len());
+        for (a, b) in old.iter().zip(&new) {
+            assert_eq!(
+                (a.x, a.y, a.theta, a.steering, a.dir),
+                (b.x, b.y, b.theta, b.steering, b.dir),
+                "corridor-None plan must be unchanged node-for-node"
+            );
+        }
+    }
+
+    #[test]
+    fn corridor_reduces_expansions_gauntlet_scale() {
+        // Measurement on the production-scale slalom (the budget-test scene):
+        // corridor mode must strictly reduce node expansions on a
+        // gauntlet-scale leg. Printed numbers are the report; run with
+        // --nocapture for details.
+        let mut grid = OccupancyGrid::new(400, 400, 0.1, -20.0, -20.0);
+        let mut x = -0.5;
+        while x <= 12.5 {
+            for yo in [1.2, 1.25, -1.2, -1.25] {
+                grid.set_occupied(x, yo);
+            }
+            x += 0.05;
+        }
+        for i in 0..6 {
+            let cx = 1.5 + 1.8 * i as f64;
+            let cy = if i % 2 == 0 { 0.45 } else { -0.45 };
+            blob(&mut grid, cx, cy, 0.15);
+        }
+        let planner = HybridAStar::new(HybridAStarConfig::default());
+        let start = pose(0.0, 0.0, 0.0);
+        let goal = pose(12.0, 0.0, 0.0);
+        let corridor = straight_ref(-0.5, 12.5);
+        let clearance = planner.build_clearance(&grid);
+
+        let (free_path, free_stats) =
+            planner.plan_with_stats(&start, &goal, &grid, clearance.as_ref());
+        let (cor_path, cor_stats) = planner.plan_with_corridor(
+            &start,
+            &goal,
+            &grid,
+            clearance.as_ref(),
+            None,
+            Some(&corridor),
+        );
+        assert!(free_path.is_some() && cor_path.is_some());
+        let weave = max_offset(cor_path.as_ref().unwrap(), &corridor);
+        println!(
+            "gauntlet-scale expansions: unconstrained={} corridor={} ({:.0}% of baseline), \
+             corridor plan max offset {:.2}m",
+            free_stats.iterations,
+            cor_stats.iterations,
+            100.0 * cor_stats.iterations as f64 / free_stats.iterations as f64,
+            weave,
+        );
+        // Route-following quality: the slalom weave stays a small fraction
+        // of the tube (no wall-hugging excursions toward ±1.2m).
+        assert!(
+            weave < 0.6,
+            "corridor plan weave {weave:.2}m — should stay well inside the tube"
+        );
+        assert!(
+            cor_stats.iterations < free_stats.iterations,
+            "corridor must reduce gauntlet-scale expansions ({} vs {})",
+            cor_stats.iterations,
+            free_stats.iterations,
+        );
     }
 }

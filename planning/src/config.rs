@@ -55,6 +55,32 @@ pub struct RoadmapConfig {
     /// Lateral deviation from the route polyline that forces a reroute.
     #[serde(default = "default_route_deviation_m")]
     pub deviation_m: f64,
+    /// Reference-direct following: with an active route, the route polyline
+    /// (robot projection → leg goal) IS the global path — no Hybrid A*, no
+    /// smoother, no path hysteresis. Obstacle avoidance moves entirely into
+    /// the local planner (quintic lateral offsets + collision rejection);
+    /// blocked links are detected by the no-progress watchdog alone. False
+    /// (default) keeps the A*-planned metric path exactly as before.
+    #[serde(default)]
+    pub follow_route_directly: bool,
+    /// Reference-corridor half width (m): the soft pull charges
+    /// `corridor_cost_weight` per meter of travel at one half-width of
+    /// lateral offset from the route polyline.
+    #[serde(default = "default_corridor_half_width")]
+    pub corridor_half_width: f64,
+    /// Corridor soft-pull weight (dimensionless, per meter of travel at one
+    /// half-width of offset). Strong enough that a straight-down-the-reference
+    /// plan beats any same-length excursion, while an obstacle-forced bulge of
+    /// ~1 half-width for ~1m costs only ~2 equivalent meters. 0 disables the
+    /// pull (hard tube only).
+    #[serde(default = "default_corridor_cost_weight")]
+    pub corridor_cost_weight: f64,
+    /// Hard bound factor: A* nodes farther than `corridor_hard_factor ×
+    /// corridor_half_width` from the route polyline are rejected outright
+    /// (the search space becomes a tube). Must be >= 1 — a tube narrower
+    /// than the soft-pull normalization width is a typo.
+    #[serde(default = "default_corridor_hard_factor")]
+    pub corridor_hard_factor: f64,
 }
 
 fn default_roadmap_file() -> String {
@@ -75,6 +101,15 @@ fn default_leg_max_m() -> f64 {
 fn default_route_deviation_m() -> f64 {
     1.5
 }
+fn default_corridor_half_width() -> f64 {
+    1.0
+}
+fn default_corridor_cost_weight() -> f64 {
+    2.0
+}
+fn default_corridor_hard_factor() -> f64 {
+    2.0
+}
 
 impl Default for RoadmapConfig {
     fn default() -> Self {
@@ -86,6 +121,10 @@ impl Default for RoadmapConfig {
             leg_min_m: default_leg_min_m(),
             leg_max_m: default_leg_max_m(),
             deviation_m: default_route_deviation_m(),
+            follow_route_directly: false,
+            corridor_half_width: default_corridor_half_width(),
+            corridor_cost_weight: default_corridor_cost_weight(),
+            corridor_hard_factor: default_corridor_hard_factor(),
         }
     }
 }
@@ -104,11 +143,27 @@ impl RoadmapConfig {
             ("roadmap.leg_min_m", self.leg_min_m),
             ("roadmap.leg_max_m", self.leg_max_m),
             ("roadmap.deviation_m", self.deviation_m),
+            ("roadmap.corridor_half_width", self.corridor_half_width),
         ];
         for (name, v) in positive {
             if !(v > 0.0 && v.is_finite()) {
                 return Err(format!("{} must be positive, got {}", name, v));
             }
+        }
+        // A negative corridor weight would REWARD leaving the reference; a
+        // hard factor below 1 makes the tube narrower than the soft-pull
+        // normalization width. Both are YAML typos — fail loudly.
+        if !(self.corridor_cost_weight >= 0.0 && self.corridor_cost_weight.is_finite()) {
+            return Err(format!(
+                "roadmap.corridor_cost_weight must be finite and >= 0, got {}",
+                self.corridor_cost_weight
+            ));
+        }
+        if !(self.corridor_hard_factor >= 1.0 && self.corridor_hard_factor.is_finite()) {
+            return Err(format!(
+                "roadmap.corridor_hard_factor must be finite and >= 1, got {}",
+                self.corridor_hard_factor
+            ));
         }
         if self.leg_min_m >= self.leg_max_m {
             return Err(format!(
@@ -259,6 +314,8 @@ local_planner:
     lookahead_min: 0.7
     lookahead_max: 2.4
     a_lat_max: 1.8
+    v_turn_min: 0.25
+    curvature_lookahead_gain: 0.5
   dwa:
     max_speed: 2.2
     max_acceleration: 2.5
@@ -301,6 +358,8 @@ arbitrator:
         assert_eq!(cfg.local_planner.pursuit.lookahead_min, 0.7);
         assert_eq!(cfg.local_planner.pursuit.lookahead_max, 2.4);
         assert_eq!(cfg.local_planner.pursuit.a_lat_max, 1.8);
+        assert_eq!(cfg.local_planner.pursuit.v_turn_min, 0.25);
+        assert_eq!(cfg.local_planner.pursuit.curvature_lookahead_gain, 0.5);
         assert_eq!(cfg.local_planner.dwa.max_speed, 2.2);
         assert_eq!(cfg.local_planner.dwa.max_acceleration, 2.5);
         assert_eq!(cfg.local_planner.dwa.max_deceleration, 3.0);
@@ -389,7 +448,17 @@ arbitrator:
         assert_eq!(cfg.local_planner.pursuit.k_v, 1.0);
         assert_eq!(cfg.local_planner.pursuit.lookahead_min, 0.6);
         assert_eq!(cfg.local_planner.pursuit.lookahead_max, 2.5);
-        assert_eq!(cfg.local_planner.pursuit.a_lat_max, 2.0);
+        // 1.5: bends and corrections braked a notch harder than the 2.0 that
+        // let mid-bend heading corrections overshoot the reference.
+        assert_eq!(cfg.local_planner.pursuit.a_lat_max, 1.5);
+        // Heading-error lookahead shrink ships enabled (wide post-recovery
+        // convergence arcs at gain 0).
+        assert_eq!(cfg.local_planner.pursuit.heading_error_lookahead_gain, 1.0);
+        // Anticipatory curvature profiling + adaptive lookahead ship with the
+        // tested defaults: bends are braked for in advance, never stalled at,
+        // and the lookahead shortens inside them.
+        assert_eq!(cfg.local_planner.pursuit.v_turn_min, 0.2);
+        assert_eq!(cfg.local_planner.pursuit.curvature_lookahead_gain, 0.6);
         assert_eq!(cfg.behavior.stuck_cycles_before_recovery, 15);
         // Roadmap layer ships enabled for the gauntlet with the tested map
         // and timing defaults.
@@ -403,6 +472,12 @@ arbitrator:
         assert_eq!(cfg.roadmap.leg_min_m, 2.0);
         assert_eq!(cfg.roadmap.leg_max_m, 4.0);
         assert_eq!(cfg.roadmap.deviation_m, 1.5);
+        // Reference corridor pins: hard factor 1.2 keeps the tube on the
+        // route's side of the slalom wall (2.0 reached past it and let a
+        // post-recovery replan dive into the slalom interior).
+        assert_eq!(cfg.roadmap.corridor_half_width, 1.0);
+        assert_eq!(cfg.roadmap.corridor_cost_weight, 2.0);
+        assert_eq!(cfg.roadmap.corridor_hard_factor, 1.2);
         assert!(cfg.roadmap.validate().is_ok());
     }
 
@@ -415,6 +490,9 @@ arbitrator:
         assert_eq!(cfg.leg_min_m, 2.0);
         assert_eq!(cfg.leg_max_m, 4.0);
         assert_eq!(cfg.deviation_m, 1.5);
+        assert_eq!(cfg.corridor_half_width, 1.0);
+        assert_eq!(cfg.corridor_cost_weight, 2.0);
+        assert_eq!(cfg.corridor_hard_factor, 2.0);
         assert!(cfg.validate().is_ok());
     }
 
@@ -429,6 +507,19 @@ arbitrator:
         assert!(bad(|c| c.link_block_after_s = -1.0).is_err());
         assert!(bad(|c| c.deviation_m = 0.0).is_err());
         assert!(bad(|c| c.leg_min_m = 5.0).is_err(), "min >= max");
+        // Corridor typos fail loudly: zero half width, negative pull weight
+        // (would REWARD leaving the reference), hard factor below 1 (tube
+        // narrower than the soft-pull normalization width).
+        assert!(bad(|c| c.corridor_half_width = 0.0).is_err());
+        assert!(bad(|c| c.corridor_cost_weight = -1.0).is_err());
+        assert!(bad(|c| c.corridor_hard_factor = 0.5).is_err());
+        assert!(bad(|c| c.corridor_hard_factor = f64::NAN).is_err());
+        // Zero pull weight (hard tube only) and factor exactly 1 are legal.
+        assert!(bad(|c| {
+            c.corridor_cost_weight = 0.0;
+            c.corridor_hard_factor = 1.0;
+        })
+        .is_ok());
         assert!(bad(|c| {
             c.enabled = true;
             c.file = String::new();
@@ -447,6 +538,9 @@ roadmap:
   leg_min_m: 1.5
   leg_max_m: 3.5
   deviation_m: 2.0
+  corridor_half_width: 0.8
+  corridor_cost_weight: 3.0
+  corridor_hard_factor: 2.5
 "#;
         let cfg: PlanningConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(cfg.roadmap.enabled);
@@ -459,6 +553,9 @@ roadmap:
         assert_eq!(cfg.roadmap.leg_min_m, 1.5);
         assert_eq!(cfg.roadmap.leg_max_m, 3.5);
         assert_eq!(cfg.roadmap.deviation_m, 2.0);
+        assert_eq!(cfg.roadmap.corridor_half_width, 0.8);
+        assert_eq!(cfg.roadmap.corridor_cost_weight, 3.0);
+        assert_eq!(cfg.roadmap.corridor_hard_factor, 2.5);
         assert!(cfg.roadmap.validate().is_ok());
     }
 

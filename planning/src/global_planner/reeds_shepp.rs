@@ -48,8 +48,8 @@
 //! node's arrival direction); the first admissible one wins.
 
 use super::{
-    pose_blocked, ClearanceField, EscapeZone, HybridAStarConfig, OccupancyGrid, PathWaypoint, Pose,
-    SegmentDir, PATH_SAMPLE_STEP_M,
+    corridor_blocked, pose_blocked, ClearanceField, Corridor, EscapeZone, HybridAStarConfig,
+    OccupancyGrid, PathWaypoint, Pose, SegmentDir, PATH_SAMPLE_STEP_M,
 };
 
 /// Steering of one RS segment.
@@ -83,9 +83,11 @@ const EPS_LEN: f64 = 1e-9;
 /// `from` with (the junction may charge a switch penalty). `escape` is the
 /// optional start-pocket zone: samples inside it are judged by the
 /// true-footprint check instead of hard inflation, exactly like the
-/// primitive expansion. Returns the tail as waypoints INCLUDING the `from`
-/// pose (callers splicing onto an A* path skip the first), or None when no
-/// candidate is admissible.
+/// primitive expansion. `corridor` is the optional reference corridor:
+/// every sample must also stay within its hard bound (escape zone exempt),
+/// exactly like the primitive expansion. Returns the tail as waypoints
+/// INCLUDING the `from` pose (callers splicing onto an A* path skip the
+/// first), or None when no candidate is admissible.
 #[allow(clippy::too_many_arguments)] // one connection contract, not a config bundle
 pub fn connect(
     from: &Pose,
@@ -96,6 +98,7 @@ pub fn connect(
     grid: &OccupancyGrid,
     clearance: Option<&ClearanceField>,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) -> Option<Vec<PathWaypoint>> {
     if kappa_max <= 0.0 {
         return None;
@@ -130,7 +133,7 @@ pub fn connect(
 
     for cand in &candidates {
         if let Some(wps) = sample_word(
-            &cand.segs, from, goal, r, steer_mag, grid, clearance, required, escape,
+            &cand.segs, from, goal, r, steer_mag, grid, clearance, required, escape, corridor,
         ) {
             return Some(wps);
         }
@@ -308,6 +311,7 @@ fn sample_word(
     clearance: Option<&ClearanceField>,
     required_clearance: Option<f64>,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) -> Option<Vec<PathWaypoint>> {
     let step_norm = PATH_SAMPLE_STEP_M / r; // normalized sample spacing
     let steer_sign_of = |steer: Steer| -> f64 {
@@ -331,6 +335,11 @@ fn sample_word(
 
     let admissible = |wx: f64, wy: f64| -> bool {
         if pose_blocked(grid, escape, wx, wy) {
+            return false;
+        }
+        // The analytic tail obeys the same corridor hard bound as the
+        // primitive expansion (escape zone exempt).
+        if corridor_blocked(corridor, escape, wx, wy) {
             return false;
         }
         match (clearance, required_clearance) {
@@ -482,6 +491,7 @@ mod tests {
                         &grid,
                         None,
                         None,
+                        None,
                     ) else {
                         continue;
                     };
@@ -534,6 +544,7 @@ mod tests {
                 &cfg(),
                 &grid,
                 None,
+                None,
                 None
             )
             .is_none(),
@@ -569,6 +580,7 @@ mod tests {
             &grid,
             Some(&field),
             None,
+            None,
         );
         if let Some(path) = with_rule {
             // If a word still connects, it must respect the rule.
@@ -592,6 +604,7 @@ mod tests {
             SegmentDir::Forward,
             &cfg(),
             &grid,
+            None,
             None,
             None
         )

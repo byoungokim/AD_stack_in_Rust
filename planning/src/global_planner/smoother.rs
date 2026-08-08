@@ -24,8 +24,8 @@
 //!   `0.9 × dwa.max_curvature` or any ≤5cm sample violates hard inflation.
 
 use super::{
-    pose_blocked, ClearanceField, EscapeZone, HybridAStarConfig, OccupancyGrid, PathWaypoint,
-    SegmentDir, PATH_SAMPLE_STEP_M,
+    corridor_blocked, pose_blocked, ClearanceField, Corridor, EscapeZone, HybridAStarConfig,
+    OccupancyGrid, PathWaypoint, SegmentDir, PATH_SAMPLE_STEP_M,
 };
 
 /// Output waypoint spacing (m) of the smoothed path.
@@ -55,6 +55,11 @@ const MAX_CLEARANCE_PUSH_M: f64 = 0.05;
 /// throughout — shortcutting, per-iteration move guards, and the final
 /// post-check — otherwise the post-check would reject every smoothed escape
 /// path on its own initial segment.
+///
+/// `corridor` is the optional reference corridor (active roadmap route leg):
+/// shortcut candidates and gradient-descent moves must not push points
+/// beyond its hard bound (same escape-zone exemption near an out-of-tube
+/// start), and the post-check rejects any smoothed result that violates it.
 pub fn smooth_path(
     raw: &[PathWaypoint],
     grid: &OccupancyGrid,
@@ -62,6 +67,7 @@ pub fn smooth_path(
     cfg: &HybridAStarConfig,
     executor_max_curvature: f64,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) -> Vec<PathWaypoint> {
     if !cfg.smoothing_enabled || raw.len() < 2 {
         return raw.to_vec();
@@ -75,7 +81,9 @@ pub fn smooth_path(
         let wps = if chain.len() < 2 {
             chain.to_vec()
         } else {
-            smooth_chain(chain, dir, grid, clearance, cfg, kappa_max, escape)
+            smooth_chain(
+                chain, dir, grid, clearance, cfg, kappa_max, escape, corridor,
+            )
         };
         // Adjacent runs share the cusp waypoint; keep a single copy (the
         // incoming run's, whose `dir` is the arrival direction — matching
@@ -116,6 +124,7 @@ fn direction_runs(path: &[PathWaypoint]) -> Vec<Run> {
 /// The original single-direction pipeline: shortcut, resample, gradient
 /// smooth, resample, post-check; falls back to the raw subchain when the
 /// post-check rejects.
+#[allow(clippy::too_many_arguments)] // one smoothing contract, not a config bundle
 fn smooth_chain(
     raw: &[PathWaypoint],
     dir: SegmentDir,
@@ -124,16 +133,19 @@ fn smooth_chain(
     cfg: &HybridAStarConfig,
     kappa_max: f64,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) -> Vec<PathWaypoint> {
     let pts: Vec<(f64, f64)> = raw.iter().map(|w| (w.x, w.y)).collect();
-    let cut = shortcut(&pts, grid, clearance, escape);
+    let cut = shortcut(&pts, grid, clearance, escape, corridor);
     let mut dense = resample(&cut, RESAMPLE_SPACING_M);
-    gradient_smooth(&mut dense, grid, clearance, cfg, kappa_max, escape);
+    gradient_smooth(
+        &mut dense, grid, clearance, cfg, kappa_max, escape, corridor,
+    );
     // Smoothing contracts segments near former corners; restore uniform
     // spacing before the executor sees the path.
     let out = resample(&dense, RESAMPLE_SPACING_M);
 
-    if !post_check(&out, grid, kappa_max, escape) {
+    if !post_check(&out, grid, kappa_max, escape, corridor) {
         return raw.to_vec();
     }
     to_waypoints(&out, cfg.wheelbase, dir)
@@ -147,6 +159,7 @@ fn shortcut(
     grid: &OccupancyGrid,
     clearance: Option<&ClearanceField>,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) -> Vec<(f64, f64)> {
     if pts.len() < 3 {
         return pts.to_vec();
@@ -171,7 +184,7 @@ fn shortcut(
         let mut chosen = i + 1;
         for j in ((i + 2)..pts.len()).rev() {
             let required = clearance.map(|_| chain_min[j - i]);
-            if segment_admissible(pts[i], pts[j], grid, clearance, required, escape) {
+            if segment_admissible(pts[i], pts[j], grid, clearance, required, escape, corridor) {
                 chosen = j;
                 break;
             }
@@ -183,10 +196,12 @@ fn shortcut(
 }
 
 /// A candidate shortcut segment is admissible when every ≤5cm sample is off
-/// occupied cells (hard inflation) and, with the clearance layer on, keeps at
-/// least `required` clearance — the replaced subchain's own minimum on the
-/// capped chamfer field, so a shortcut never trades away clearance A* paid
-/// distance to obtain.
+/// occupied cells (hard inflation), stays within the corridor hard bound
+/// (escape zone exempt) and, with the clearance layer on, keeps at least
+/// `required` clearance — the replaced subchain's own minimum on the capped
+/// chamfer field, so a shortcut never trades away clearance A* paid distance
+/// to obtain.
+#[allow(clippy::too_many_arguments)] // one admissibility contract, not a config bundle
 fn segment_admissible(
     a: (f64, f64),
     b: (f64, f64),
@@ -194,6 +209,7 @@ fn segment_admissible(
     clearance: Option<&ClearanceField>,
     required: Option<f64>,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) -> bool {
     let len = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
     let n = (len / PATH_SAMPLE_STEP_M).ceil().max(1.0) as usize;
@@ -202,6 +218,9 @@ fn segment_admissible(
         let x = a.0 + (b.0 - a.0) * t;
         let y = a.1 + (b.1 - a.1) * t;
         if pose_blocked(grid, escape, x, y) {
+            return false;
+        }
+        if corridor_blocked(corridor, escape, x, y) {
             return false;
         }
         if let (Some(field), Some(req)) = (clearance, required) {
@@ -251,6 +270,7 @@ fn resample(pts: &[(f64, f64)], spacing: f64) -> Vec<(f64, f64)> {
 /// relaxation pass restricted to offending vertices. Every proposed move is
 /// rejected if it would land on an occupied cell (hard inflation is never
 /// violated mid-iteration).
+#[allow(clippy::too_many_arguments)] // one smoothing contract, not a config bundle
 fn gradient_smooth(
     pts: &mut [(f64, f64)],
     grid: &OccupancyGrid,
@@ -258,6 +278,7 @@ fn gradient_smooth(
     cfg: &HybridAStarConfig,
     kappa_max: f64,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) {
     if pts.len() < 3 {
         return;
@@ -267,7 +288,9 @@ fn gradient_smooth(
     let decay = cfg.clearance_decay_m;
 
     for _ in 0..cfg.smoothing_iterations {
-        smoothing_pass(pts, grid, clearance, alpha, beta, decay, None, escape);
+        smoothing_pass(
+            pts, grid, clearance, alpha, beta, decay, None, escape, corridor,
+        );
     }
 
     // Curvature relaxation: extra pure-Laplacian passes applied only where
@@ -287,6 +310,7 @@ fn gradient_smooth(
             decay,
             Some(&offending),
             escape,
+            corridor,
         );
     }
 }
@@ -303,6 +327,7 @@ fn smoothing_pass(
     decay: f64,
     only: Option<&[bool]>,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) {
     let snapshot: Vec<(f64, f64)> = pts.to_vec();
     for i in 1..snapshot.len() - 1 {
@@ -338,7 +363,7 @@ fn smoothing_pass(
             }
         }
         let (nx, ny) = (px + dx, py + dy);
-        if !pose_blocked(grid, escape, nx, ny) {
+        if !pose_blocked(grid, escape, nx, ny) && !corridor_blocked(corridor, escape, nx, ny) {
             pts[i] = (nx, ny);
         }
     }
@@ -365,8 +390,10 @@ fn offending_vertices(pts: &[(f64, f64)], kappa_max: f64) -> Vec<bool> {
 }
 
 /// Signed 3-point discrete (Menger) curvature: 2·cross / (|ab|·|bc|·|ac|).
-/// Positive for a left turn.
-fn menger_curvature(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
+/// Positive for a left turn. Shared with the pursuit executor's anticipatory
+/// curvature speed profile (which recomputes discrete curvature on path
+/// samples that carry no steering feed-forward).
+pub(crate) fn menger_curvature(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
     let cross = (b.0 - a.0) * (c.1 - b.1) - (b.1 - a.1) * (c.0 - b.0);
     let ab = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
     let bc = ((c.0 - b.0).powi(2) + (c.1 - b.1).powi(2)).sqrt();
@@ -380,20 +407,21 @@ fn menger_curvature(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
 }
 
 /// Final acceptance: every ≤5cm segment sample off occupied cells (relaxed to
-/// the true footprint inside the escape zone) AND every 3-point discrete
-/// curvature within the bound. On failure the caller falls back to the raw
-/// A* path.
+/// the true footprint inside the escape zone), within the corridor hard bound
+/// when a corridor is active, AND every 3-point discrete curvature within the
+/// bound. On failure the caller falls back to the raw A* path.
 fn post_check(
     pts: &[(f64, f64)],
     grid: &OccupancyGrid,
     kappa_max: f64,
     escape: Option<&EscapeZone>,
+    corridor: Option<&Corridor>,
 ) -> bool {
     if pts.len() < 2 {
         return false;
     }
     for w in pts.windows(2) {
-        if !segment_admissible(w[0], w[1], grid, None, None, escape) {
+        if !segment_admissible(w[0], w[1], grid, None, None, escape, corridor) {
             return false;
         }
     }
@@ -517,7 +545,7 @@ mod tests {
             (3.0, 0.0),
         ]);
         let field = ClearanceField::build(&grid, 0.5);
-        let smoothed = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None);
+        let smoothed = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None, None);
         assert!(length(&raw) > 3.5, "raw zigzag must be meaningfully longer");
         assert!(
             length(&smoothed) < 3.05,
@@ -546,7 +574,7 @@ mod tests {
             .fold(f64::INFINITY, f64::min);
         assert!(orig_min >= 0.5 - 1e-9, "detour must start band-clear");
 
-        let smoothed = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None);
+        let smoothed = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None, None);
         let new_min = smoothed
             .iter()
             .map(|p| field.distance_at(p.x, p.y))
@@ -561,7 +589,15 @@ mod tests {
         // Control: with the cone removed the same call straight-lines it.
         let open = empty_grid();
         let open_field = ClearanceField::build(&open, 0.5);
-        let straight = smooth_path(&raw, &open, Some(&open_field), &cfg(), EXEC_KAPPA, None);
+        let straight = smooth_path(
+            &raw,
+            &open,
+            Some(&open_field),
+            &cfg(),
+            EXEC_KAPPA,
+            None,
+            None,
+        );
         assert!(length(&straight) < 4.05);
     }
 
@@ -573,7 +609,7 @@ mod tests {
         let raw = chain(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)]);
         let mut pts: Vec<(f64, f64)> = raw.iter().map(|p| (p.x, p.y)).collect();
         pts = resample(&pts, RESAMPLE_SPACING_M);
-        gradient_smooth(&mut pts, &grid, None, &cfg(), 0.9 * EXEC_KAPPA, None);
+        gradient_smooth(&mut pts, &grid, None, &cfg(), 0.9 * EXEC_KAPPA, None, None);
         let final_pts = resample(&pts, RESAMPLE_SPACING_M);
         let worst = final_pts
             .windows(3)
@@ -584,7 +620,7 @@ mod tests {
             "right angle not smoothed under the bound: max curvature {:.2}",
             worst
         );
-        assert!(post_check(&final_pts, &grid, 0.9 * EXEC_KAPPA, None));
+        assert!(post_check(&final_pts, &grid, 0.9 * EXEC_KAPPA, None, None));
     }
 
     #[test]
@@ -614,7 +650,7 @@ mod tests {
         }
         let raw = chain(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)]);
         let field = ClearanceField::build(&grid, 0.5);
-        let smoothed = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None);
+        let smoothed = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None, None);
         assert!(
             max_curvature(&smoothed) <= 0.9 * EXEC_KAPPA + 1e-9,
             "corner curvature {:.2} exceeds the bound",
@@ -622,7 +658,15 @@ mod tests {
         );
         for w in smoothed.windows(2) {
             assert!(
-                segment_admissible((w[0].x, w[0].y), (w[1].x, w[1].y), &grid, None, None, None),
+                segment_admissible(
+                    (w[0].x, w[0].y),
+                    (w[1].x, w[1].y),
+                    &grid,
+                    None,
+                    None,
+                    None,
+                    None
+                ),
                 "smoothed path violates hard inflation near ({:.2},{:.2})",
                 w[0].x,
                 w[0].y
@@ -636,7 +680,7 @@ mod tests {
     fn smoothed_spacing_is_uniform() {
         let grid = empty_grid();
         let raw = chain(&[(0.0, 0.0), (1.0, 0.4), (2.0, -0.4), (3.5, 0.0)]);
-        let smoothed = smooth_path(&raw, &grid, None, &cfg(), EXEC_KAPPA, None);
+        let smoothed = smooth_path(&raw, &grid, None, &cfg(), EXEC_KAPPA, None, None);
         assert!(smoothed.len() >= 3);
         let gaps: Vec<f64> = smoothed
             .windows(2)
@@ -670,7 +714,7 @@ mod tests {
             smoothing_enabled: false,
             ..HybridAStarConfig::default()
         };
-        let out = smooth_path(&raw, &grid, None, &off, EXEC_KAPPA, None);
+        let out = smooth_path(&raw, &grid, None, &off, EXEC_KAPPA, None, None);
         assert_eq!(out.len(), raw.len());
         for (a, b) in out.iter().zip(raw.iter()) {
             assert_eq!(
@@ -704,7 +748,7 @@ mod tests {
             s += 0.05;
         }
         let raw = chain(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)]);
-        let out = smooth_path(&raw, &grid, None, &cfg(), 0.01, None);
+        let out = smooth_path(&raw, &grid, None, &cfg(), 0.01, None, None);
         assert_eq!(out.len(), raw.len(), "must fall back to the raw path");
         assert_eq!((out[5].x, out[5].y), (raw[5].x, raw[5].y));
     }
@@ -730,7 +774,7 @@ mod tests {
         raw.extend(rev.into_iter().skip(1));
 
         let field = ClearanceField::build(&grid, 0.5);
-        let sm = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None);
+        let sm = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None, None);
 
         // Exactly one direction transition, and the waypoint preceding it is
         // the cusp point, preserved EXACTLY.
@@ -785,6 +829,52 @@ mod tests {
     }
 
     #[test]
+    fn corridor_hard_bound_constrains_smoothing() {
+        // (f) A path riding near the tube edge (y = 1.9, hard bound 2.0)
+        // with obstacles just inside it: the clearance-gradient push shoves
+        // points outward, PAST the bound when unconstrained — with the
+        // corridor active the smoother must never emit a point beyond it.
+        let mut grid = empty_grid();
+        for x in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            grid.set_occupied(x, 1.6);
+        }
+        let field = ClearanceField::build(&grid, 0.5);
+        let raw = chain(&[(0.0, 1.9), (1.5, 1.9), (3.0, 1.9)]);
+        let corridor = Corridor::new(vec![(-0.5, 0.0), (3.5, 0.0)], 1.0, 2.0, 2.0).unwrap();
+
+        // Control first: without the corridor the push exceeds the bound —
+        // pinning that the guard below is load-bearing.
+        let unconstrained = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None, None);
+        let worst_free = unconstrained
+            .iter()
+            .map(|p| corridor.offset(p.x, p.y))
+            .fold(0.0_f64, f64::max);
+        assert!(
+            worst_free > corridor.hard_bound(),
+            "fixture too weak: unconstrained smoothing stayed at {worst_free:.3}m"
+        );
+
+        let bounded = smooth_path(
+            &raw,
+            &grid,
+            Some(&field),
+            &cfg(),
+            EXEC_KAPPA,
+            None,
+            Some(&corridor),
+        );
+        assert!(bounded.len() >= 2);
+        for p in &bounded {
+            assert!(
+                corridor.offset(p.x, p.y) <= corridor.hard_bound() + 1e-9,
+                "smoothed point ({:.2},{:.2}) beyond the corridor hard bound",
+                p.x,
+                p.y
+            );
+        }
+    }
+
+    #[test]
     fn smoothing_budget_fits_the_replan_interval() {
         // The smoother runs inside the 4 Hz (250ms) replan slot after A*.
         // Smooth a representative ~12m slalom chain against a populated grid
@@ -818,7 +908,7 @@ mod tests {
         let t0 = std::time::Instant::now();
         let mut out_len = 0;
         for _ in 0..20 {
-            out_len = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None).len();
+            out_len = smooth_path(&raw, &grid, Some(&field), &cfg(), EXEC_KAPPA, None, None).len();
         }
         let per_call = t0.elapsed() / 20;
         println!(
