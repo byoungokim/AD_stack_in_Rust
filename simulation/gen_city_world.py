@@ -36,6 +36,7 @@ Usage:
 """
 
 import argparse
+import json
 import math
 import random
 import struct
@@ -200,18 +201,6 @@ def actor_xml(name, visuals, waypoints):
     )
 
 
-def pedestrian_visual(color):
-    r, g, b = color
-    return (
-        '        <visual name="visual">\n'
-        "          <pose>0 0 0.75 0 0 0</pose>\n"
-        "          <geometry><cylinder><radius>0.15</radius>"
-        "<length>1.5</length></cylinder></geometry>\n"
-        f"          <material><ambient>{r} {g} {b} 1</ambient>"
-        f"<diffuse>{r} {g} {b} 1</diffuse></material>\n"
-        "        </visual>\n"
-    )
-
 
 def vehicle_visuals(color):
     """Car-sized vehicle (~3.5x the Limo's length at this scale)."""
@@ -297,21 +286,6 @@ def loop_waypoints(corners, speed, phase=0.0, corner_cut=0.5):
     return wps
 
 
-def line_waypoints(a, b, speed, dwell=1.0):
-    """Back-and-forth walk between two points with a dwell at each end."""
-    ax, ay = a
-    bx, by = b
-    d = math.hypot(bx - ax, by - ay)
-    yaw_ab = math.atan2(by - ay, bx - ax)
-    yaw_ba = math.atan2(ay - by, ax - bx)
-    t1 = d / speed
-    return [
-        (0.0, ax, ay, yaw_ab),
-        (t1, bx, by, yaw_ab),
-        (t1 + dwell, bx, by, yaw_ba),
-        (2 * t1 + dwell, ax, ay, yaw_ba),
-        (2 * t1 + 2 * dwell, ax, ay, yaw_ab),
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -598,21 +572,62 @@ def generate(args):
     parts.append("\n")
 
     # ------------------------------------------------------------------
-    # Pedestrian actors: sidewalk loopers + crosswalk crossers, sharing
-    # exactly the network the robot navigates.
+    # Pedestrians: REACTIVE physical models (not scripted actors).
+    # Each ped is a kinematic cylinder with real collision geometry, a
+    # VelocityControl plugin (driven by simulation/bridge/ped_controller.py
+    # over /model/<name>/cmd_vel) and a PosePublisher for closed-loop
+    # control. The controller walks the route and PAUSES the ped when the
+    # robot is close — scripted <actor> peds were blind and marched through
+    # an already-yielding robot. Routes are emitted alongside the world as
+    # <world>_peds.json; run_gazebo_full.sh starts the controller when that
+    # file exists.
     # ------------------------------------------------------------------
-    parts.append("    <!-- ============ PEDESTRIANS (kinematic actors) ============ -->\n")
+    parts.append("    <!-- ============ PEDESTRIANS (reactive models, see ped_controller.py) ============ -->\n")
     ped_colors = [(0.9, 0.75, 0.2), (0.2, 0.55, 0.9), (0.85, 0.3, 0.3), (0.3, 0.8, 0.5)]
     n_ped = 0
+    ped_routes = []
 
-    def add_ped(waypoints, kind):
+    def add_ped(route, kind, speed, mode, dwell=0.0):
         nonlocal n_ped
+        name = f"ped_{n_ped}_{kind}"
+        x0, y0 = route[0]
+        r, g, b = ped_colors[n_ped % len(ped_colors)]
         parts.append(
-            actor_xml(
-                f"ped_{n_ped}_{kind}",
-                pedestrian_visual(ped_colors[n_ped % len(ped_colors)]),
-                waypoints,
-            )
+            f'    <model name="{name}">\n'
+            f"      <pose>{x0:.3f} {y0:.3f} 0 0 0 0</pose>\n"
+            '      <link name="body">\n'
+            "        <kinematic>true</kinematic>\n"
+            '        <collision name="collision">\n'
+            "          <pose>0 0 0.75 0 0 0</pose>\n"
+            "          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>\n"
+            "        </collision>\n"
+            '        <visual name="visual">\n'
+            "          <pose>0 0 0.75 0 0 0</pose>\n"
+            "          <geometry><cylinder><radius>0.15</radius><length>1.5</length></cylinder></geometry>\n"
+            f"          <material><ambient>{r} {g} {b} 1</ambient>"
+            f"<diffuse>{r} {g} {b} 1</diffuse></material>\n"
+            "        </visual>\n"
+            "      </link>\n"
+            '      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>\n'
+            '      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">\n'
+            "        <publish_model_pose>true</publish_model_pose>\n"
+            "        <publish_link_pose>false</publish_link_pose>\n"
+            "        <publish_collision_pose>false</publish_collision_pose>\n"
+            "        <publish_visual_pose>false</publish_visual_pose>\n"
+            "        <publish_sensor_pose>false</publish_sensor_pose>\n"
+            "        <use_pose_vector_msg>false</use_pose_vector_msg>\n"
+            "        <update_frequency>10</update_frequency>\n"
+            "      </plugin>\n"
+            "    </model>\n"
+        )
+        ped_routes.append(
+            {
+                "name": name,
+                "mode": mode,  # "shuttle" (back-and-forth) | "loop"
+                "route": [[round(x, 3), round(y, 3)] for (x, y) in route],
+                "speed": round(speed, 2),
+                "dwell": round(dwell, 2),
+            }
         )
         n_ped += 1
 
@@ -620,19 +635,26 @@ def generate(args):
     xw_pool = crosswalks[:]
     rng.shuffle(xw_pool)
     for (ka, kb) in xw_pool[: args.peds // 2]:
-        speed = rng.uniform(0.35, 0.6)
-        add_ped(line_waypoints(corner[ka], corner[kb], speed, dwell=rng.uniform(0.5, 2.0)), "cross")
+        add_ped(
+            [corner[ka], corner[kb]],
+            "cross",
+            rng.uniform(0.35, 0.6),
+            "shuttle",
+            dwell=rng.uniform(0.5, 2.0),
+        )
 
-    # (b) sidewalk loopers around random blocks (the robot's own rings)
+    # (b) sidewalk loopers around random blocks (0.3m inside the robot line)
     for _ in range(args.peds - args.peds // 2):
         bi = rng.randrange(blocks)
         bj = rng.randrange(blocks)
         bx, by = block_centers[bi], block_centers[bj]
-        pr = block / 2.0 - sidewalk / 2.0 - 0.3  # inside the robot line
+        pr = block / 2.0 - sidewalk / 2.0 - 0.3
         ring = [(bx - pr, by - pr), (bx + pr, by - pr), (bx + pr, by + pr), (bx - pr, by + pr)]
         if rng.random() < 0.5:
             ring.reverse()
-        add_ped(loop_waypoints(ring, rng.uniform(0.4, 0.7), phase=rng.random()), "loop")
+        start = rng.randrange(4)
+        ring = ring[start:] + ring[:start]
+        add_ped(ring, "loop", rng.uniform(0.4, 0.7), "loop")
 
     parts.append("\n")
 
@@ -708,6 +730,10 @@ def generate(args):
 
     world_path = PROJECT / "simulation" / "worlds" / "city_blocks.sdf"
     world_path.write_text("".join(parts))
+
+    # Ped routes for the reactive controller (world coordinates).
+    peds_path = PROJECT / "simulation" / "worlds" / "city_blocks_peds.json"
+    peds_path.write_text(json.dumps({"peds": ped_routes}, indent=1) + "\n")
 
     # ------------------------------------------------------------------
     # Roadmap: sidewalk rings + crosswalks in the planner frame
@@ -801,6 +827,7 @@ def generate(args):
     print(f"actors   : {n_ped} pedestrians, {n_veh} car-sized vehicles")
     print(f"roadmap  : {roadmap_path.relative_to(PROJECT)}  ({n_nodes} nodes, {n_links} links, sidewalk+crosswalk)")
     print(f"scenario : {scenario_path.relative_to(PROJECT)}  (perimeter sidewalk patrol, loops forever)")
+    print(f"peds     : {peds_path.relative_to(PROJECT)}  (reactive routes for ped_controller.py)")
     if tex:
         print("textures : simulation/models/city_textures/ (procedural PBR albedo)")
 
