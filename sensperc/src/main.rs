@@ -413,6 +413,9 @@ fn aggregator_loop(
                             velocity_world: None,
                             radius: 0.0,
                             track_id: 0,
+                            half_extent_x: 0.0,
+                            half_extent_y: 0.0,
+                            orientation: 0.0,
                         }
                     })
                     .collect();
@@ -432,6 +435,11 @@ fn aggregator_loop(
                     }),
                     radius: t.radius as f32,
                     track_id: t.id,
+                    // Oriented-box extent from the tracker's PCA (planner
+                    // activates it when both half extents are > 0).
+                    half_extent_x: t.half_major as f32,
+                    half_extent_y: t.half_minor as f32,
+                    orientation: t.orientation as f32,
                 });
             }
             Some(limo_proto::DetectionArray {
@@ -474,6 +482,9 @@ fn aggregator_loop(
                     velocity_world: None,
                     radius: 0.0,
                     track_id: 0,
+                    half_extent_x: 0.0,
+                    half_extent_y: 0.0,
+                    orientation: 0.0,
                 });
             }
             Some(limo_proto::DetectionArray {
