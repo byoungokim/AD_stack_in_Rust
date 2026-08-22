@@ -2079,14 +2079,24 @@ mod maneuver_tests {
         }
         // The slalom has a clear route: even bidirectional must stay far from
         // the iteration cap and inside the 250ms replan slot in DEBUG builds.
+        // Shared CI runners suffer CPU steal that has pushed unchanged code
+        // past 250ms (flaking Rust-free PRs), so under CI the wall-clock
+        // budget gets 8x headroom — still a tripwire for order-of-magnitude
+        // regressions, no longer a load-sensitive coin flip. The
+        // deterministic iteration cap stays the primary guard everywhere.
+        let budget = if std::env::var_os("CI").is_some() {
+            std::time::Duration::from_millis(2000)
+        } else {
+            std::time::Duration::from_millis(250)
+        };
         for (label, iters, elapsed) in &results {
             assert!(
                 *iters < 100_000,
                 "{label} used {iters} expansions on a clear route"
             );
             assert!(
-                *elapsed < std::time::Duration::from_millis(250),
-                "{label} took {elapsed:?} — exceeds the replan slot even in debug"
+                *elapsed < budget,
+                "{label} took {elapsed:?} — exceeds the replan wall-clock budget {budget:?}"
             );
         }
     }
