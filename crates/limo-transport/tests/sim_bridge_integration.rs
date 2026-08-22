@@ -292,13 +292,23 @@ fn test_sim_full_loop() {
         steering_angle: 0.0,
         emergency_stop: false,
     };
-    ctrl_cmd_pub.publish(&cmd).expect("Failed to publish cmd");
-
-    // Isaac Sim receives the command
-    let received: limo_proto::SimControlCommand = sim_ctrl_sub
-        .recv(Duration::from_secs(2))
-        .expect("Recv error")
-        .expect("Timeout — sim didn't receive control command");
+    // ZMQ slow-joiner: sim_ctrl_sub connected BEFORE ctrl_cmd_pub bound, so
+    // the subscriber sits in a reconnect-retry cycle whose completion no
+    // fixed settle sleep can guarantee on a loaded runner — a single publish
+    // is silently dropped until the subscription lands (measured ~20% local
+    // flake, intermittent CI failures). Republish until received, bounded.
+    let mut received: Option<limo_proto::SimControlCommand> = None;
+    for _ in 0..50 {
+        ctrl_cmd_pub.publish(&cmd).expect("Failed to publish cmd");
+        if let Some(msg) = sim_ctrl_sub
+            .recv(Duration::from_millis(100))
+            .expect("Recv error")
+        {
+            received = Some(msg);
+            break;
+        }
+    }
+    let received = received.expect("Timeout — sim didn't receive control command");
 
     assert!((received.linear_velocity - 0.3).abs() < 1e-6);
 }
