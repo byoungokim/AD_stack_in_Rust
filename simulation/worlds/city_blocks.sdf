@@ -83,12 +83,24 @@
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
     <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
 
+    <scene>
+      <ambient>0.55 0.55 0.58 1</ambient>
+      <background>0.55 0.7 0.9 1</background>
+      <sky>
+        <time>15</time>
+        <sunrise>6</sunrise>
+        <sunset>19</sunset>
+        <clouds><speed>1.5</speed></clouds>
+      </sky>
+      <shadows>true</shadows>
+    </scene>
+
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.9 0.9 0.9 1</diffuse>
-      <specular>0.3 0.3 0.3 1</specular>
-      <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>1.0 0.96 0.88 1</diffuse>
+      <specular>0.4 0.4 0.35 1</specular>
+      <direction>-0.45 0.25 -0.85</direction>
     </light>
     <model name="ground_plane">
       <static>true</static>
@@ -625,6 +637,528 @@
         <visual name="visual"><geometry><box><size>1.500 4.000 0.012</size></box></geometry>
           <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://city_textures/paving.png</albedo_map><roughness>0.85</roughness><metalness>0.0</metalness></metal></pbr></material>
         </visual>
+      </link>
+    </model>
+    <model name="curb_s_0_0">
+      <static>true</static>
+      <pose>-10.000 -13.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_0_0">
+      <static>true</static>
+      <pose>-10.000 -6.530 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_0_0">
+      <static>true</static>
+      <pose>-13.470 -10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_0_0">
+      <static>true</static>
+      <pose>-6.530 -10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_0_1">
+      <static>true</static>
+      <pose>-10.000 -3.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_0_1">
+      <static>true</static>
+      <pose>-10.000 3.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_0_1">
+      <static>true</static>
+      <pose>-13.470 0.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_0_1">
+      <static>true</static>
+      <pose>-6.530 0.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_0_2">
+      <static>true</static>
+      <pose>-10.000 6.530 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_0_2">
+      <static>true</static>
+      <pose>-10.000 13.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_0_2">
+      <static>true</static>
+      <pose>-13.470 10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_0_2">
+      <static>true</static>
+      <pose>-6.530 10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_1_0">
+      <static>true</static>
+      <pose>0.000 -13.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_1_0">
+      <static>true</static>
+      <pose>0.000 -6.530 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_1_0">
+      <static>true</static>
+      <pose>-3.470 -10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_1_0">
+      <static>true</static>
+      <pose>3.470 -10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_1_1">
+      <static>true</static>
+      <pose>0.000 -3.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_1_1">
+      <static>true</static>
+      <pose>0.000 3.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_1_1">
+      <static>true</static>
+      <pose>-3.470 0.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_1_1">
+      <static>true</static>
+      <pose>3.470 0.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_1_2">
+      <static>true</static>
+      <pose>0.000 6.530 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_1_2">
+      <static>true</static>
+      <pose>0.000 13.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_1_2">
+      <static>true</static>
+      <pose>-3.470 10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_1_2">
+      <static>true</static>
+      <pose>3.470 10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_2_0">
+      <static>true</static>
+      <pose>10.000 -13.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_2_0">
+      <static>true</static>
+      <pose>10.000 -6.530 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_2_0">
+      <static>true</static>
+      <pose>6.530 -10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_2_0">
+      <static>true</static>
+      <pose>13.470 -10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_2_1">
+      <static>true</static>
+      <pose>10.000 -3.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_2_1">
+      <static>true</static>
+      <pose>10.000 3.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_2_1">
+      <static>true</static>
+      <pose>6.530 0.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_2_1">
+      <static>true</static>
+      <pose>13.470 0.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_s_2_2">
+      <static>true</static>
+      <pose>10.000 6.530 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_n_2_2">
+      <static>true</static>
+      <pose>10.000 13.470 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>7.000 0.060 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_w_2_2">
+      <static>true</static>
+      <pose>6.530 10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="curb_e_2_2">
+      <static>true</static>
+      <pose>13.470 10.000 0.020 0 0 0.000</pose>
+      <link name="link">
+        
+        <visual name="visual"><geometry><box><size>0.060 7.000 0.040</size></box></geometry>
+          <material><ambient>0.72 0.72 0.7 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="lamp_0">
+      <static>true</static>
+      <pose>-11.880 -11.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_1">
+      <static>true</static>
+      <pose>-8.120 -8.120 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_2">
+      <static>true</static>
+      <pose>-11.880 -1.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_3">
+      <static>true</static>
+      <pose>-8.120 1.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_4">
+      <static>true</static>
+      <pose>-11.880 8.120 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_5">
+      <static>true</static>
+      <pose>-8.120 11.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_6">
+      <static>true</static>
+      <pose>-1.880 -11.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_7">
+      <static>true</static>
+      <pose>1.880 -8.120 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_8">
+      <static>true</static>
+      <pose>-1.880 -1.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_9">
+      <static>true</static>
+      <pose>1.880 1.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_10">
+      <static>true</static>
+      <pose>-1.880 8.120 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_11">
+      <static>true</static>
+      <pose>1.880 11.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_12">
+      <static>true</static>
+      <pose>8.120 -11.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_13">
+      <static>true</static>
+      <pose>11.880 -8.120 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_14">
+      <static>true</static>
+      <pose>8.120 -1.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_15">
+      <static>true</static>
+      <pose>11.880 1.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_16">
+      <static>true</static>
+      <pose>8.120 8.120 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
+      </link>
+    </model>
+    <model name="lamp_17">
+      <static>true</static>
+      <pose>11.880 11.880 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>
+        <visual name="pole"><pose>0 0 0.6 0 0 0</pose><geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>
+        <visual name="head"><pose>0 0 1.25 0 0 0</pose><geometry><sphere><radius>0.07</radius></sphere></geometry><material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse><emissive>0.5 0.45 0.25 1</emissive></material></visual>
       </link>
     </model>
 
@@ -2243,40 +2777,10 @@
         </visual>
       </link>
     </model>
-    <model name="parked_box_0">
-      <static>true</static>
-      <pose>-6.150 -2.527 0.150 0 0 0.024</pose>
-      <link name="link">
-        <collision name="collision"><geometry><box><size>0.350 0.600 0.300</size></box></geometry></collision>
-        <visual name="visual"><geometry><box><size>0.350 0.600 0.300</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://city_textures/concrete.png</albedo_map><roughness>0.85</roughness><metalness>0.0</metalness></metal></pbr></material>
-        </visual>
-      </link>
-    </model>
-    <model name="parked_box_1">
-      <static>true</static>
-      <pose>16.150 3.572 0.150 0 0 -0.007</pose>
-      <link name="link">
-        <collision name="collision"><geometry><box><size>0.350 0.600 0.300</size></box></geometry></collision>
-        <visual name="visual"><geometry><box><size>0.350 0.600 0.300</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://city_textures/concrete.png</albedo_map><roughness>0.85</roughness><metalness>0.0</metalness></metal></pbr></material>
-        </visual>
-      </link>
-    </model>
-    <model name="parked_box_2">
-      <static>true</static>
-      <pose>13.850 -2.741 0.150 0 0 0.040</pose>
-      <link name="link">
-        <collision name="collision"><geometry><box><size>0.350 0.600 0.300</size></box></geometry></collision>
-        <visual name="visual"><geometry><box><size>0.350 0.600 0.300</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://city_textures/concrete.png</albedo_map><roughness>0.85</roughness><metalness>0.0</metalness></metal></pbr></material>
-        </visual>
-      </link>
-    </model>
 
     <!-- ============ PEDESTRIANS (reactive models, see ped_controller.py) ============ -->
     <model name="ped_0_cross">
-      <pose>2.750 12.750 0 0 0 0</pose>
+      <pose>-12.750 -7.250 0 0 0 0</pose>
       <link name="body">
         <kinematic>true</kinematic>
         <collision name="collision">
@@ -2301,7 +2805,7 @@
       </plugin>
     </model>
     <model name="ped_1_cross">
-      <pose>-12.750 -7.250 0 0 0 0</pose>
+      <pose>12.750 2.750 0 0 0 0</pose>
       <link name="body">
         <kinematic>true</kinematic>
         <collision name="collision">
@@ -2326,7 +2830,7 @@
       </plugin>
     </model>
     <model name="ped_2_cross">
-      <pose>12.750 2.750 0 0 0 0</pose>
+      <pose>-7.250 -12.750 0 0 0 0</pose>
       <link name="body">
         <kinematic>true</kinematic>
         <collision name="collision">
@@ -2376,7 +2880,7 @@
       </plugin>
     </model>
     <model name="ped_4_loop">
-      <pose>-7.550 -7.550 0 0 0 0</pose>
+      <pose>-12.450 2.450 0 0 0 0</pose>
       <link name="body">
         <kinematic>true</kinematic>
         <collision name="collision">
@@ -2401,7 +2905,7 @@
       </plugin>
     </model>
     <model name="ped_5_loop">
-      <pose>7.550 -2.450 0 0 0 0</pose>
+      <pose>12.450 -2.450 0 0 0 0</pose>
       <link name="body">
         <kinematic>true</kinematic>
         <collision name="collision">
@@ -2426,7 +2930,7 @@
       </plugin>
     </model>
     <model name="ped_6_loop">
-      <pose>2.450 -7.550 0 0 0 0</pose>
+      <pose>7.550 2.450 0 0 0 0</pose>
       <link name="body">
         <kinematic>true</kinematic>
         <collision name="collision">
@@ -2451,7 +2955,7 @@
       </plugin>
     </model>
     <model name="ped_7_loop">
-      <pose>-7.550 -2.450 0 0 0 0</pose>
+      <pose>-2.450 7.550 0 0 0 0</pose>
       <link name="body">
         <kinematic>true</kinematic>
         <collision name="collision">
@@ -2476,123 +2980,288 @@
       </plugin>
     </model>
 
-    <!-- ============ VEHICLES (kinematic actors) ============ -->
-    <actor name="vehicle_0_block">
+    <!-- ============ TRAFFIC (erratic physical cars, see traffic_controller.py) ============ -->
+    <model name="vehicle_0_car">
+      <static>false</static>
+      <pose>4.250 13.500 0 0 0 -1.571</pose>
       <link name="body">
-        <visual name="body">
-          <pose>0 0 0.16 0 0 0</pose>
-          <geometry><box><size>1.10 0.55 0.32</size></box></geometry>
-          <material><ambient>0.75 0.15 0.12 1</ambient><diffuse>0.75 0.15 0.12 1</diffuse></material>
-        </visual>
-        <visual name="cabin">
-          <pose>-0.08 0 0.44 0 0 0</pose>
-          <geometry><box><size>0.55 0.48 0.24</size></box></geometry>
-          <material><ambient>0.15 0.18 0.22 1</ambient><diffuse>0.15 0.18 0.22 1</diffuse></material>
-        </visual>
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.75 0.15 0.12 1</ambient><diffuse>0.75 0.15 0.12 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-5.750 -5.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>23.05</time><pose>4.850 -5.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>25.01</time><pose>5.750 -5.750 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>48.06</time><pose>5.750 4.850 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>50.01</time><pose>5.750 5.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>73.06</time><pose>-4.850 5.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>75.02</time><pose>-5.750 5.750 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>98.07</time><pose>-5.750 -4.850 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>100.02</time><pose>-5.750 -5.750 0 0 0 0.000</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="vehicle_1_block">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+    <model name="vehicle_1_car">
+      <static>false</static>
+      <pose>-3.500 4.250 0 0 0 0.000</pose>
       <link name="body">
-        <visual name="body">
-          <pose>0 0 0.16 0 0 0</pose>
-          <geometry><box><size>1.10 0.55 0.32</size></box></geometry>
-          <material><ambient>0.12 0.35 0.7 1</ambient><diffuse>0.12 0.35 0.7 1</diffuse></material>
-        </visual>
-        <visual name="cabin">
-          <pose>-0.08 0 0.44 0 0 0</pose>
-          <geometry><box><size>0.55 0.48 0.24</size></box></geometry>
-          <material><ambient>0.15 0.18 0.22 1</ambient><diffuse>0.15 0.18 0.22 1</diffuse></material>
-        </visual>
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.12 0.35 0.7 1</ambient><diffuse>0.12 0.35 0.7 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>-15.750 4.250 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>20.63</time><pose>-5.150 4.250 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>22.38</time><pose>-4.250 4.250 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>43.01</time><pose>-4.250 14.850 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>44.76</time><pose>-4.250 15.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>65.39</time><pose>-14.850 15.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>67.14</time><pose>-15.750 15.750 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>87.77</time><pose>-15.750 5.150 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>89.52</time><pose>-15.750 4.250 0 0 0 0.000</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="vehicle_2_block">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+    <model name="vehicle_2_car">
+      <static>false</static>
+      <pose>-14.250 16.500 0 0 0 1.571</pose>
       <link name="body">
-        <visual name="body">
-          <pose>0 0 0.16 0 0 0</pose>
-          <geometry><box><size>1.10 0.55 0.32</size></box></geometry>
-          <material><ambient>0.9 0.6 0.1 1</ambient><diffuse>0.9 0.6 0.1 1</diffuse></material>
-        </visual>
-        <visual name="cabin">
-          <pose>-0.08 0 0.44 0 0 0</pose>
-          <geometry><box><size>0.55 0.48 0.24</size></box></geometry>
-          <material><ambient>0.15 0.18 0.22 1</ambient><diffuse>0.15 0.18 0.22 1</diffuse></material>
-        </visual>
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.9 0.6 0.1 1</ambient><diffuse>0.9 0.6 0.1 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>5.750 15.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>26.13</time><pose>-4.850 15.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>28.35</time><pose>-5.750 15.750 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>54.48</time><pose>-5.750 5.150 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>56.69</time><pose>-5.750 4.250 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>82.82</time><pose>4.850 4.250 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>85.04</time><pose>5.750 4.250 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>111.17</time><pose>5.750 14.850 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>113.39</time><pose>5.750 15.750 0 0 0 3.142</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
-    <actor name="vehicle_3_ring">
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+    <model name="vehicle_3_car">
+      <static>false</static>
+      <pose>16.500 4.250 0 0 0 0.000</pose>
       <link name="body">
-        <visual name="body">
-          <pose>0 0 0.16 0 0 0</pose>
-          <geometry><box><size>1.10 0.55 0.32</size></box></geometry>
-          <material><ambient>0.2 0.6 0.3 1</ambient><diffuse>0.2 0.6 0.3 1</diffuse></material>
-        </visual>
-        <visual name="cabin">
-          <pose>-0.08 0 0.44 0 0 0</pose>
-          <geometry><box><size>0.55 0.48 0.24</size></box></geometry>
-          <material><ambient>0.15 0.18 0.22 1</ambient><diffuse>0.15 0.18 0.22 1</diffuse></material>
-        </visual>
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.2 0.6 0.3 1</ambient><diffuse>0.2 0.6 0.3 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
       </link>
-      <script>
-        <loop>true</loop>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walk">
-        <waypoint><time>0.00</time><pose>15.750 15.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>68.00</time><pose>-14.850 15.750 0 0 0 3.142</pose></waypoint>
-        <waypoint><time>70.00</time><pose>-15.750 15.750 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>138.00</time><pose>-15.750 -14.850 0 0 0 -1.571</pose></waypoint>
-        <waypoint><time>140.00</time><pose>-15.750 -15.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>208.00</time><pose>14.850 -15.750 0 0 0 0.000</pose></waypoint>
-        <waypoint><time>210.00</time><pose>15.750 -15.750 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>278.00</time><pose>15.750 14.850 0 0 0 1.571</pose></waypoint>
-        <waypoint><time>280.00</time><pose>15.750 15.750 0 0 0 3.142</pose></waypoint>
-        </trajectory>
-      </script>
-    </actor>
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+    <model name="vehicle_4_car">
+      <static>false</static>
+      <pose>-6.500 15.750 0 0 0 3.142</pose>
+      <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.55 0.2 0.6 1</ambient><diffuse>0.55 0.2 0.6 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+    <model name="vehicle_5_car">
+      <static>false</static>
+      <pose>4.250 -16.500 0 0 0 -1.571</pose>
+      <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.8 0.75 0.7 1</ambient><diffuse>0.8 0.75 0.7 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+    <model name="vehicle_6_car">
+      <static>false</static>
+      <pose>-14.250 6.500 0 0 0 1.571</pose>
+      <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.25 0.25 0.28 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+    <model name="vehicle_7_car">
+      <static>false</static>
+      <pose>14.250 -6.500 0 0 0 -1.571</pose>
+      <link name="body">
+        <kinematic>true</kinematic>
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.7 0.45 0.15 1</ambient><diffuse>0.7 0.45 0.15 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>
+      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+        <publish_model_pose>true</publish_model_pose>
+        <publish_link_pose>false</publish_link_pose>
+        <publish_collision_pose>false</publish_collision_pose>
+        <publish_visual_pose>false</publish_visual_pose>
+        <publish_sensor_pose>false</publish_sensor_pose>
+        <use_pose_vector_msg>false</use_pose_vector_msg>
+        <update_frequency>15</update_frequency>
+      </plugin>
+    </model>
+
+    <model name="parked_car_0">
+      <static>true</static>
+      <pose>6.150 4.362 0 0 0 1.517</pose>
+      <link name="body">
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.5 0.5 0.55 1</ambient><diffuse>0.5 0.5 0.55 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="parked_car_1">
+      <static>true</static>
+      <pose>-5.350 -13.850 0 0 0 0.007</pose>
+      <link name="body">
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.35 0.4 0.45 1</ambient><diffuse>0.35 0.4 0.45 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="parked_car_2">
+      <static>true</static>
+      <pose>-13.850 4.685 0 0 0 1.629</pose>
+      <link name="body">
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.6 0.55 0.5 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="parked_car_3">
+      <static>true</static>
+      <pose>0.334 3.850 0 0 0 -0.044</pose>
+      <link name="body">
+        <collision name="collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>
+        </collision>
+        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose><geometry><box><size>1.10 0.55 0.24</size></box></geometry><material><ambient>0.5 0.5 0.55 1</ambient><diffuse>0.5 0.5 0.55 1</diffuse><specular>0.4 0.4 0.4 1</specular></material></visual>
+        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose><geometry><box><size>0.55 0.48 0.22</size></box></geometry><material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse><specular>0.5 0.5 0.55 1</specular></material></visual>
+        <visual name="wheel_0"><pose>0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_1"><pose>0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_2"><pose>-0.35 0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+        <visual name="wheel_3"><pose>-0.35 -0.29 0.09 1.5707 0 0</pose><geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry><material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
+      </link>
+    </model>
 
     <!-- ============ LIMO PRO ROBOT (sidewalk robot) ============ -->
     <!-- Spawn anchors the planner/odom frame: world (-12.75, -12.75, yaw 0). -->

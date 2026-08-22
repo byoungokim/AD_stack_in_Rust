@@ -46,3 +46,4 @@ run_city.log
 run.log
 nohup.out
 accidents.log
+accidents.log.old

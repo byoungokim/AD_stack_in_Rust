@@ -44,6 +44,7 @@ cleanup() {
     pkill -f "gz sim" 2>/dev/null
     pkill -f gz_zmq_bridge 2>/dev/null
     pkill -f ped_controller 2>/dev/null
+    pkill -f traffic_controller 2>/dev/null
     pkill -f accident_monitor 2>/dev/null
     pkill -f limo_ 2>/dev/null
     wait 2>/dev/null
@@ -60,6 +61,7 @@ if pgrep -f "gz sim" >/dev/null 2>&1 || pgrep -f "limo_sensperc|limo_planning|li
     pkill -f "gz sim" 2>/dev/null || true
     pkill -f gz_zmq_bridge 2>/dev/null || true
     pkill -f ped_controller 2>/dev/null || true
+    pkill -f traffic_controller 2>/dev/null || true
     pkill -f accident_monitor 2>/dev/null || true
     pkill -f "limo_sensperc|limo_planning|limo_control|limo_scenario|limo_sim_bridge" 2>/dev/null || true
     sleep 2
@@ -116,6 +118,16 @@ PEDS_FILE="${WORLD%.sdf}_peds.json"
 if [[ -f "$PEDS_FILE" ]]; then
     log "Starting reactive pedestrian controller ($PEDS_FILE)..."
     python3 "$PROJECT_DIR/simulation/bridge/ped_controller.py" "$PEDS_FILE" &
+    PIDS+=($!)
+fi
+
+# === 3b2. Erratic traffic controller (GTA v2 worlds) ===
+# gen_city_world.py emits <world>_traffic.json; when present, vehicle_*
+# car models are driven with irregular behavior by the controller.
+TRAFFIC_FILE="${WORLD%.sdf}_traffic.json"
+if [[ -f "$TRAFFIC_FILE" ]]; then
+    log "Starting erratic traffic controller ($TRAFFIC_FILE)..."
+    python3 "$PROJECT_DIR/simulation/bridge/traffic_controller.py" "$TRAFFIC_FILE" &
     PIDS+=($!)
 fi
 
