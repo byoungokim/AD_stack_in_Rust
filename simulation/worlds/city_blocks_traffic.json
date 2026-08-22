@@ -1,0 +1,91 @@
+{
+ "centers": [
+  -15.0,
+  -5.0,
+  5.0,
+  15.0
+ ],
+ "lane": 0.75,
+ "cars": [
+  {
+   "name": "vehicle_0_car",
+   "dir": "S",
+   "i": 2,
+   "j": 3,
+   "speed_min": 0.42,
+   "speed_max": 0.86,
+   "attentive": false,
+   "erratic": 0.84
+  },
+  {
+   "name": "vehicle_1_car",
+   "dir": "E",
+   "i": 1,
+   "j": 2,
+   "speed_min": 0.43,
+   "speed_max": 0.72,
+   "attentive": false,
+   "erratic": 0.74
+  },
+  {
+   "name": "vehicle_2_car",
+   "dir": "N",
+   "i": 0,
+   "j": 3,
+   "speed_min": 0.41,
+   "speed_max": 0.66,
+   "attentive": false,
+   "erratic": 0.72
+  },
+  {
+   "name": "vehicle_3_car",
+   "dir": "E",
+   "i": 3,
+   "j": 2,
+   "speed_min": 0.37,
+   "speed_max": 0.78,
+   "attentive": true,
+   "erratic": 0.78
+  },
+  {
+   "name": "vehicle_4_car",
+   "dir": "W",
+   "i": 1,
+   "j": 3,
+   "speed_min": 0.43,
+   "speed_max": 0.88,
+   "attentive": false,
+   "erratic": 0.54
+  },
+  {
+   "name": "vehicle_5_car",
+   "dir": "S",
+   "i": 2,
+   "j": 0,
+   "speed_min": 0.38,
+   "speed_max": 0.71,
+   "attentive": false,
+   "erratic": 0.98
+  },
+  {
+   "name": "vehicle_6_car",
+   "dir": "N",
+   "i": 0,
+   "j": 2,
+   "speed_min": 0.44,
+   "speed_max": 0.74,
+   "attentive": true,
+   "erratic": 0.74
+  },
+  {
+   "name": "vehicle_7_car",
+   "dir": "S",
+   "i": 3,
+   "j": 1,
+   "speed_min": 0.5,
+   "speed_max": 0.74,
+   "attentive": false,
+   "erratic": 0.57
+  }
+ ]
+}

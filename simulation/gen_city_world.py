@@ -178,119 +178,63 @@ def static_box(name, x, y, z, sx, sy, sz, mat, yaw=0.0, collide=True):
     )
 
 
-def actor_xml(name, visuals, waypoints):
-    """Kinematic scripted actor. waypoints: [(t, x, y, yaw)], loops."""
-    wp_xml = "".join(
-        f"        <waypoint><time>{t:.2f}</time>"
-        f"<pose>{x:.3f} {y:.3f} 0 0 0 {yaw:.3f}</pose></waypoint>\n"
-        for (t, x, y, yaw) in waypoints
-    )
-    return (
-        f'    <actor name="{name}">\n'
-        '      <link name="body">\n'
-        f"{visuals}"
-        "      </link>\n"
-        "      <script>\n"
-        "        <loop>true</loop>\n"
-        "        <auto_start>true</auto_start>\n"
-        '        <trajectory id="0" type="walk">\n'
-        f"{wp_xml}"
-        "        </trajectory>\n"
-        "      </script>\n"
-        "    </actor>\n"
-    )
 
-
-
-def vehicle_visuals(color):
-    """Car-sized vehicle (~3.5x the Limo's length at this scale)."""
+def car_model_xml(name, x, y, yaw, color, parked=False):
+    """Car-sized vehicle (~3.5x the Limo's length) as a PHYSICAL model:
+    collision body + cabin + wheels. Moving cars are kinematic and driven by
+    simulation/bridge/traffic_controller.py via VelocityControl (they get a
+    PosePublisher for closed-loop control); parked cars are static props."""
     r, g, b = color
-    body = (
-        '        <visual name="body">\n'
-        "          <pose>0 0 0.16 0 0 0</pose>\n"
-        "          <geometry><box><size>1.10 0.55 0.32</size></box></geometry>\n"
-        f"          <material><ambient>{r} {g} {b} 1</ambient>"
-        f"<diffuse>{r} {g} {b} 1</diffuse></material>\n"
-        "        </visual>\n"
+    wheels = "".join(
+        f'        <visual name="wheel_{k}"><pose>{wx:.2f} {wy:.2f} 0.09 1.5707 0 0</pose>'
+        "<geometry><cylinder><radius>0.09</radius><length>0.06</length></cylinder></geometry>"
+        "<material><ambient>0.08 0.08 0.08 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>"
+        "</visual>\n"
+        for k, (wx, wy) in enumerate([(0.35, 0.29), (0.35, -0.29), (-0.35, 0.29), (-0.35, -0.29)])
     )
-    cabin = (
-        '        <visual name="cabin">\n'
-        "          <pose>-0.08 0 0.44 0 0 0</pose>\n"
-        "          <geometry><box><size>0.55 0.48 0.24</size></box></geometry>\n"
-        "          <material><ambient>0.15 0.18 0.22 1</ambient>"
-        "<diffuse>0.15 0.18 0.22 1</diffuse></material>\n"
-        "        </visual>\n"
+    plugins = "" if parked else (
+        '      <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl"/>\n'
+        '      <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">\n'
+        "        <publish_model_pose>true</publish_model_pose>\n"
+        "        <publish_link_pose>false</publish_link_pose>\n"
+        "        <publish_collision_pose>false</publish_collision_pose>\n"
+        "        <publish_visual_pose>false</publish_visual_pose>\n"
+        "        <publish_sensor_pose>false</publish_sensor_pose>\n"
+        "        <use_pose_vector_msg>false</use_pose_vector_msg>\n"
+        "        <update_frequency>15</update_frequency>\n"
+        "      </plugin>\n"
     )
-    return body + cabin
+    static = "true" if parked else "false"
+    kinematic = "" if parked else "        <kinematic>true</kinematic>\n"
+    return (
+        f'    <model name="{name}">\n'
+        f"      <static>{static}</static>\n"
+        f"      <pose>{x:.3f} {y:.3f} 0 0 0 {yaw:.3f}</pose>\n"
+        '      <link name="body">\n'
+        f"{kinematic}"
+        '        <collision name="collision">\n'
+        "          <pose>0 0 0.2 0 0 0</pose>\n"
+        "          <geometry><box><size>1.10 0.55 0.40</size></box></geometry>\n"
+        "        </collision>\n"
+        '        <visual name="body_v"><pose>0 0 0.20 0 0 0</pose>'
+        "<geometry><box><size>1.10 0.55 0.24</size></box></geometry>"
+        f"<material><ambient>{r} {g} {b} 1</ambient><diffuse>{r} {g} {b} 1</diffuse>"
+        "<specular>0.4 0.4 0.4 1</specular></material></visual>\n"
+        '        <visual name="cabin"><pose>-0.08 0 0.42 0 0 0</pose>'
+        "<geometry><box><size>0.55 0.48 0.22</size></box></geometry>"
+        "<material><ambient>0.12 0.15 0.2 1</ambient><diffuse>0.15 0.18 0.25 1</diffuse>"
+        "<specular>0.5 0.5 0.55 1</specular></material></visual>\n"
+        f"{wheels}"
+        "      </link>\n"
+        f"{plugins}"
+        "    </model>\n"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Route helpers (loops with per-corner turn poses)
 # ---------------------------------------------------------------------------
 
-
-def loop_waypoints(corners, speed, phase=0.0, corner_cut=0.5):
-    """Timed actor waypoints around a closed polygon.
-
-    Each corner contributes an arrival point (incoming heading) shortly
-    before it and a departure point (outgoing heading) at it, so the turn
-    happens tightly at the corner instead of smearing along the edge.
-    `phase` in [0,1) rotates the START POSE around the polygon so identical
-    circuits desynchronize spatially, not just in schedule. `corner_cut`
-    grows with vehicle length so long bodies swing wider into turns.
-    """
-    n = len(corners)
-    lengths = []
-    total = 0.0
-    for i in range(n):
-        x0, y0 = corners[i]
-        x1, y1 = corners[(i + 1) % n]
-        seg = math.hypot(x1 - x0, y1 - y0)
-        lengths.append(seg)
-        total += seg
-
-    # Spatial phase: rotate the corner list so the actor STARTS partway
-    # around the loop (at the corner nearest the phase arc position).
-    if phase:
-        arc, target = 0.0, phase * total
-        start = 0
-        for i in range(n):
-            if arc >= target:
-                start = i
-                break
-            arc += lengths[i]
-        corners = corners[start:] + corners[:start]
-        lengths = lengths[start:] + lengths[:start]
-
-    t = 0.0
-    wps = []
-    for i in range(n):
-        x0, y0 = corners[i]
-        x1, y1 = corners[(i + 1) % n]
-        yaw_out = math.atan2(y1 - y0, x1 - x0)
-        wps.append((t, x0, y0, yaw_out))
-        seg = lengths[i]
-        pre = max(seg - corner_cut, seg * 0.5)
-        wps.append(
-            (
-                t + pre / speed,
-                x0 + (x1 - x0) * pre / seg,
-                y0 + (y1 - y0) * pre / seg,
-                yaw_out,
-            )
-        )
-        t += seg / speed
-    x0, y0 = corners[0]
-    x1, y1 = corners[1]
-    wps.append((t, x0, y0, math.atan2(y1 - y0, x1 - x0)))
-    return wps
-
-
-
-
-# ---------------------------------------------------------------------------
-# Generator
-# ---------------------------------------------------------------------------
 
 GUI_TEMPLATE = """    <gui fullscreen="0">
       <plugin filename="MinimalScene" name="3D View">
@@ -367,12 +311,24 @@ WORLD_SYSTEMS = """    <physics name="1ms" type="ode">
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
     <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
 
+    <scene>
+      <ambient>0.55 0.55 0.58 1</ambient>
+      <background>0.55 0.7 0.9 1</background>
+      <sky>
+        <time>15</time>
+        <sunrise>6</sunrise>
+        <sunset>19</sunset>
+        <clouds><speed>1.5</speed></clouds>
+      </sky>
+      <shadows>true</shadows>
+    </scene>
+
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.9 0.9 0.9 1</diffuse>
-      <specular>0.3 0.3 0.3 1</specular>
-      <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>1.0 0.96 0.88 1</diffuse>
+      <specular>0.4 0.4 0.35 1</specular>
+      <direction>-0.45 0.25 -0.85</direction>
     </light>
 """
 
@@ -493,6 +449,41 @@ def generate(args):
             inner = block - 2 * sidewalk
             parts.append(static_box(f"walk_w_{bi}_{bj}", bx - s_off, by, 0.008, sidewalk, inner, 0.012, paving, collide=False))
             parts.append(static_box(f"walk_e_{bi}_{bj}", bx + s_off, by, 0.008, sidewalk, inner, 0.012, paving, collide=False))
+    # Curbs: raised strips at the sidewalk/street boundary (visual only —
+    # below the lidar plane, and no collision so crosswalk entry stays flat)
+    curb = material(color=(0.72, 0.72, 0.7))
+    for bi, bx in enumerate(block_centers):
+        for bj, by in enumerate(block_centers):
+            e = block / 2.0
+            parts.append(static_box(f"curb_s_{bi}_{bj}", bx, by - e + 0.03, 0.02, block, 0.06, 0.04, curb, collide=False))
+            parts.append(static_box(f"curb_n_{bi}_{bj}", bx, by + e - 0.03, 0.02, block, 0.06, 0.04, curb, collide=False))
+            parts.append(static_box(f"curb_w_{bi}_{bj}", bx - e + 0.03, by, 0.02, 0.06, block, 0.04, curb, collide=False))
+            parts.append(static_box(f"curb_e_{bi}_{bj}", bx + e - 0.03, by, 0.02, 0.06, block, 0.04, curb, collide=False))
+    # Street lamps at the building-side corners of each block (inside the
+    # pedestrian ring, so neither robot corridor nor ped routes hit them)
+    n_lamp = 0
+    for bi, bx in enumerate(block_centers):
+        for bj, by in enumerate(block_centers):
+            li = block / 2.0 - sidewalk - 0.12
+            for (sxn, syn) in [(-1, -1), (1, 1)]:
+                lx, ly = bx + sxn * li, by + syn * li
+                parts.append(
+                    f'    <model name="lamp_{n_lamp}">\n'
+                    "      <static>true</static>\n"
+                    f"      <pose>{lx:.3f} {ly:.3f} 0 0 0 0</pose>\n"
+                    '      <link name="link">\n'
+                    '        <collision name="collision"><pose>0 0 0.6 0 0 0</pose>'
+                    "<geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry></collision>\n"
+                    '        <visual name="pole"><pose>0 0 0.6 0 0 0</pose>'
+                    "<geometry><cylinder><radius>0.03</radius><length>1.2</length></cylinder></geometry>"
+                    "<material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual>\n"
+                    '        <visual name="head"><pose>0 0 1.25 0 0 0</pose>'
+                    "<geometry><sphere><radius>0.07</radius></sphere></geometry>"
+                    "<material><ambient>0.9 0.85 0.6 1</ambient><diffuse>0.95 0.9 0.65 1</diffuse>"
+                    "<emissive>0.5 0.45 0.25 1</emissive></material></visual>\n"
+                    "      </link>\n    </model>\n"
+                )
+                n_lamp += 1
     parts.append("\n")
 
     # Zebra crosswalk stripes (visual only), one band per crosswalk link,
@@ -594,15 +585,6 @@ def generate(args):
                     static_box(f"building_{n_building}", cx, cy, h / 2, sx, sy, h, mat)
                 )
                 n_building += 1
-    # Street-edge parked obstacles (in the road, not on sidewalks)
-    for k in range(blocks):
-        c = centers[rng.randrange(len(centers))]
-        along = rng.uniform(-half * 0.6, half * 0.6)
-        side = rng.choice([-1, 1]) * (street / 2 - 0.35)
-        if rng.random() < 0.5:
-            parts.append(static_box(f"parked_box_{k}", along, c + side, 0.15, 0.6, 0.35, 0.3, concrete, yaw=rng.uniform(-0.1, 0.1)))
-        else:
-            parts.append(static_box(f"parked_box_{k}", c + side, along, 0.15, 0.35, 0.6, 0.3, concrete, yaw=rng.uniform(-0.1, 0.1)))
     parts.append("\n")
 
     # ------------------------------------------------------------------
@@ -693,48 +675,77 @@ def generate(args):
     parts.append("\n")
 
     # ------------------------------------------------------------------
-    # Vehicle actors: car-sized, right-hand traffic, CCW circuits with
-    # lane offset. They conflict with the robot only at crosswalks.
+    # Traffic: erratic PHYSICAL cars (GTA v2). Each car is a kinematic
+    # model with collision, driven by simulation/bridge/traffic_controller.py
+    # over VelocityControl: random turns at intersections, varying speeds,
+    # sudden stops — and most of them do NOT yield to the robot. Spawn
+    # slots are spread over the lane network; the controller derives lane
+    # geometry from the emitted <world>_traffic.json.
     # ------------------------------------------------------------------
-    parts.append("    <!-- ============ VEHICLES (kinematic actors) ============ -->\n")
-    veh_colors = [(0.75, 0.15, 0.12), (0.12, 0.35, 0.7), (0.9, 0.6, 0.1), (0.2, 0.6, 0.3), (0.55, 0.2, 0.6)]
+    parts.append("    <!-- ============ TRAFFIC (erratic physical cars, see traffic_controller.py) ============ -->\n")
+    veh_colors = [(0.75, 0.15, 0.12), (0.12, 0.35, 0.7), (0.9, 0.6, 0.1), (0.2, 0.6, 0.3),
+                  (0.55, 0.2, 0.6), (0.8, 0.75, 0.7), (0.25, 0.25, 0.28), (0.7, 0.45, 0.15)]
     n_veh = 0
+    K = len(centers)
+    DIRS = {"E": (1, 0), "W": (-1, 0), "N": (0, 1), "S": (0, -1)}
 
-    def block_circuit(bi, bj):
-        x0, x1 = centers[bi], centers[bi + 1]
-        y0, y1 = centers[bj], centers[bj + 1]
-        return [
-            (x0 - lane, y0 - lane),
-            (x1 + lane, y0 - lane),
-            (x1 + lane, y1 + lane),
-            (x0 - lane, y1 + lane),
-        ]
+    def lane_point(d, i, j):
+        ci, cj = centers[i], centers[j]
+        if d == "E":
+            return (ci, cj - lane)
+        if d == "W":
+            return (ci, cj + lane)
+        if d == "N":
+            return (ci + lane, cj)
+        return (ci - lane, cj)
 
-    chosen_blocks = [(i, j) for i in range(blocks) for j in range(blocks)]
-    rng.shuffle(chosen_blocks)
-    for k in range(min(args.vehicles - 1, len(chosen_blocks))):
-        bi, bj = chosen_blocks[k]
-        speed = rng.uniform(0.35, 0.55)
-        wps = loop_waypoints(block_circuit(bi, bj), speed, phase=rng.random(), corner_cut=0.9)
-        parts.append(
-            actor_xml(f"vehicle_{n_veh}_block", vehicle_visuals(veh_colors[n_veh % len(veh_colors)]), wps)
+    yaw_of = {"E": 0.0, "W": math.pi, "N": math.pi / 2, "S": -math.pi / 2}
+    slots = []
+    for d in DIRS:
+        for i in range(K):
+            for j in range(K):
+                slots.append((d, i, j))
+    rng.shuffle(slots)
+    cars = []
+    used_cells = set()
+    for (d, i, j) in slots:
+        if len(cars) >= args.vehicles:
+            break
+        if (i, j) in used_cells:
+            continue  # one car per intersection cell at spawn: no overlaps
+        used_cells.add((i, j))
+        x, y = lane_point(d, i, j)
+        # nudge along travel direction so the car isn't exactly on its first target
+        dx, dy = DIRS[d]
+        x, y = x + dx * 1.5, y + dy * 1.5
+        name = f"vehicle_{n_veh}_car"
+        parts.append(car_model_xml(name, x, y, yaw_of[d], veh_colors[n_veh % len(veh_colors)]))
+        cars.append(
+            {
+                "name": name,
+                "dir": d,
+                "i": i,
+                "j": j,
+                "speed_min": round(rng.uniform(0.35, 0.5), 2),
+                "speed_max": round(rng.uniform(0.6, 0.9), 2),
+                "attentive": rng.random() < 0.25,  # only 1 in 4 yields to the robot
+                "erratic": round(rng.uniform(0.5, 1.0), 2),  # stop/speed-change proneness
+            }
         )
         n_veh += 1
+    parts.append("\n")
 
-    ring = [
-        (centers[0] - lane, centers[0] - lane),
-        (centers[-1] + lane, centers[0] - lane),
-        (centers[-1] + lane, centers[-1] + lane),
-        (centers[0] - lane, centers[-1] + lane),
-    ]
-    parts.append(
-        actor_xml(
-            f"vehicle_{n_veh}_ring",
-            vehicle_visuals(veh_colors[n_veh % len(veh_colors)]),
-            loop_waypoints(ring, 0.45, phase=0.3, corner_cut=0.9),
-        )
-    )
-    n_veh += 1
+    # Parked cars along street edges (static props replacing the old boxes)
+    parked_colors = [(0.5, 0.5, 0.55), (0.35, 0.4, 0.45), (0.6, 0.55, 0.5)]
+    for k in range(blocks + 1):
+        c = centers[rng.randrange(len(centers))]
+        along = rng.uniform(-half * 0.55, half * 0.55)
+        side = rng.choice([-1, 1]) * (street / 2 - 0.35)
+        col = parked_colors[k % len(parked_colors)]
+        if rng.random() < 0.5:
+            parts.append(car_model_xml(f"parked_car_{k}", along, c + side, rng.uniform(-0.08, 0.08), col, parked=True))
+        else:
+            parts.append(car_model_xml(f"parked_car_{k}", c + side, along, math.pi / 2 + rng.uniform(-0.08, 0.08), col, parked=True))
     parts.append("\n")
 
     # Robot. The PosePublisher plugin is REQUIRED: the gz-zmq bridge builds
@@ -769,6 +780,12 @@ def generate(args):
     # Ped routes for the reactive controller (world coordinates).
     peds_path = PROJECT / "simulation" / "worlds" / f"{stem}_peds.json"
     peds_path.write_text(json.dumps({"peds": ped_routes}, indent=1) + "\n")
+
+    # Traffic network + car configs for the erratic-traffic controller.
+    traffic_path = PROJECT / "simulation" / "worlds" / f"{stem}_traffic.json"
+    traffic_path.write_text(
+        json.dumps({"centers": centers, "lane": lane, "cars": cars}, indent=1) + "\n"
+    )
 
     # ------------------------------------------------------------------
     # Roadmap: sidewalk rings + crosswalks in the planner frame
@@ -975,6 +992,7 @@ def generate(args):
     print(f"roadmap  : {roadmap_path.relative_to(PROJECT)}  ({n_nodes} nodes, {n_links} links, {net})")
     print(f"scenario : {scenario_path.relative_to(PROJECT)}  ({patrol_desc})")
     print(f"peds     : {peds_path.relative_to(PROJECT)}  (reactive routes for ped_controller.py)")
+    print(f"traffic  : {traffic_path.relative_to(PROJECT)}  ({len(cars)} erratic cars for traffic_controller.py)")
     if tex:
         print("textures : simulation/models/city_textures/ (procedural PBR albedo)")
 
@@ -986,7 +1004,7 @@ def main():
     ap.add_argument("--street", type=float, default=3.0, help="street width, m (default 3.0)")
     ap.add_argument("--sidewalk", type=float, default=1.5, help="sidewalk width, m (default 1.5)")
     ap.add_argument("--peds", type=int, default=8, help="pedestrian actors (default 8)")
-    ap.add_argument("--vehicles", type=int, default=4, help="vehicle actors incl. ring car (default 4)")
+    ap.add_argument("--vehicles", type=int, default=8, help="erratic traffic cars (default 8)")
     ap.add_argument("--sidewalk-speed", type=float, default=0.8, help="roadmap sidewalk speed cap, m/s")
     ap.add_argument("--crosswalk-speed", type=float, default=0.7, help="roadmap crosswalk speed cap, m/s")
     ap.add_argument("--patrol-speed", type=float, default=0.6, help="patrol waypoint speed, m/s")

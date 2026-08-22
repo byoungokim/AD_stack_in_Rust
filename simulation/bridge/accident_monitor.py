@@ -89,6 +89,12 @@ class AccidentLog:
         self.count = 0
         self.last_at = {}  # party -> monotonic time of last contact
         self.lock = threading.Lock()
+        # One log per run: rotate the previous session out so counts and
+        # entries always belong to the CURRENT run (the append-only file
+        # made an old soak's 82 accidents look like live ones).
+        import os
+        if os.path.exists(self.path) and os.path.getsize(self.path) > 0:
+            os.replace(self.path, self.path + ".old")
         with open(self.path, "a") as f:
             f.write(
                 f"\n=== accident monitor started {datetime.datetime.now().isoformat(timespec='seconds')} ===\n"
@@ -168,6 +174,7 @@ def main():
         for kind in ("cross", "loop"):
             name = f"ped_{i}_{kind}"
             gz.subscribe(Pose, f"/model/{name}/pose", make_ped_cb(name))
+        gz.subscribe(Pose, f"/model/vehicle_{i}_car/pose", make_ped_cb(f"vehicle_{i}_car"))
 
     # Path 1: ground-truth chassis contacts.
     def on_contacts(msg: Contacts):
